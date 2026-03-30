@@ -54,6 +54,11 @@ public class TopologyCreator {
                 .then();
     }
 
+    public Mono<Void> createDlqTopics(List<String> baseTopics) {
+        List<String> dlqTopics = baseTopics.stream().map(t -> t + ".dlq").toList();
+        return createTopics(dlqTopics);
+    }
+
     protected Mono<NewTopic> createTopic(NewTopic topic) {
         return Mono.fromFuture(adminClient.createTopics(List.of(topic))
                         .all()
@@ -73,8 +78,11 @@ public class TopologyCreator {
 
     public void checkTopic(String topicName) {
         if (checkTopics && !existingTopics.containsKey(topicName)) {
-            throw new TopicNotFoundException("Topic not found: " + topicName + ". Please create it before send a message.");
-            // TODO: should refresh topics?? getTopics();
+            existingTopics.putAll(getTopics());
+            if (!existingTopics.containsKey(topicName)) {
+                throw new TopicNotFoundException("Topic not found: " + topicName +
+                        ". Please create it before send a message.");
+            }
         }
     }
 }

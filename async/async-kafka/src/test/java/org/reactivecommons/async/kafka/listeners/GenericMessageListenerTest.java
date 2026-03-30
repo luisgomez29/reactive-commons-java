@@ -6,7 +6,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.reactivecommons.async.api.handlers.registered.RegisteredEventListener;
 import org.reactivecommons.async.commons.DiscardNotifier;
 import org.reactivecommons.async.commons.communications.Message;
 import org.reactivecommons.async.commons.ext.CustomReporter;
@@ -37,12 +36,7 @@ class GenericMessageListenerTest {
     @Mock
     private ReactiveMessageListener receiver;
     @Mock
-    private Message message;
-    @Mock
     private TopologyCreator topologyCreator;
-
-    @Mock
-    private RegisteredEventListener<Object, Object> handler;
 
     SampleListener setup(Function<Message, Mono<Object>> handler) {
         return new SampleListener(
@@ -75,7 +69,7 @@ class GenericMessageListenerTest {
         when(receiver.listen(anyString(), any(List.class))).thenReturn(flux);
         when(receiver.getMaxConcurrency()).thenReturn(1);
         when(topologyCreator.createTopics(any(List.class))).thenReturn(Mono.empty());
-
+        when(topologyCreator.createDlqTopics(any(List.class))).thenReturn(Mono.empty());
         final AtomicReference<MonoSink<Object>> sink = new AtomicReference<>();
         Mono<Object> flow = Mono.create(sink::set);
         SampleListener sampleListener = setup(message1 -> {
@@ -86,7 +80,8 @@ class GenericMessageListenerTest {
         sampleListener.startListener(topologyCreator);
         StepVerifier.create(flow).expectNext("").verifyComplete();
         // Assert
-        verify(topologyCreator, times(1)).createTopics(any(List.class));
+        verify(topologyCreator, times(1)).createTopics(List.of("topic"));
+        verify(topologyCreator, times(1)).createDlqTopics(List.of("topic"));
     }
 
     public static class SampleListener extends GenericMessageListener {

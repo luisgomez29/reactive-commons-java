@@ -1,54 +1,60 @@
 package org.reactivecommons.async.kafka;
 
 import io.cloudevents.CloudEvent;
+import lombok.RequiredArgsConstructor;
 import org.reactivecommons.api.domain.Command;
 import org.reactivecommons.async.api.AsyncQuery;
 import org.reactivecommons.async.api.DirectAsyncGateway;
 import org.reactivecommons.async.api.From;
+import org.reactivecommons.async.kafka.communications.ReactiveMessageSender;
 import reactor.core.publisher.Mono;
 
+import static org.reactivecommons.async.api.HandlerRegistry.DEFAULT_DOMAIN;
+
+@RequiredArgsConstructor
 public class KafkaDirectAsyncGateway implements DirectAsyncGateway {
 
     public static final String NOT_IMPLEMENTED_YET = "Not implemented yet";
+    private final ReactiveMessageSender sender;
 
     @Override
     public <T> Mono<Void> sendCommand(Command<T> command, String targetName) {
-        throw new UnsupportedOperationException(NOT_IMPLEMENTED_YET);
+        return sendCommand(command, targetName, 0, DEFAULT_DOMAIN);
     }
 
     @Override
     public <T> Mono<Void> sendCommand(Command<T> command, String targetName, long delayMillis) {
-        throw new UnsupportedOperationException(NOT_IMPLEMENTED_YET);
+        return sendCommand(command, targetName, delayMillis, DEFAULT_DOMAIN);
     }
 
     @Override
     public <T> Mono<Void> sendCommand(Command<T> command, String targetName, String domain) {
-        throw new UnsupportedOperationException(NOT_IMPLEMENTED_YET);
+        return sendCommand(command, targetName, 0, domain);
     }
 
     @Override
     public <T> Mono<Void> sendCommand(Command<T> command, String targetName, long delayMillis, String domain) {
-        throw new UnsupportedOperationException(NOT_IMPLEMENTED_YET);
+        return sender.send(command, targetName);
     }
 
     @Override
     public Mono<Void> sendCommand(CloudEvent command, String targetName) {
-        throw new UnsupportedOperationException(NOT_IMPLEMENTED_YET);
+        return sendCommand(command, targetName, 0, DEFAULT_DOMAIN);
     }
 
     @Override
     public Mono<Void> sendCommand(CloudEvent command, String targetName, long delayMillis) {
-        throw new UnsupportedOperationException(NOT_IMPLEMENTED_YET);
+        return sendCommand(command, targetName, delayMillis, DEFAULT_DOMAIN);
     }
 
     @Override
     public Mono<Void> sendCommand(CloudEvent command, String targetName, String domain) {
-        throw new UnsupportedOperationException(NOT_IMPLEMENTED_YET);
+        return sendCommand(command, targetName, 0, domain);
     }
 
     @Override
     public Mono<Void> sendCommand(CloudEvent command, String targetName, long delayMillis, String domain) {
-        throw new UnsupportedOperationException(NOT_IMPLEMENTED_YET);
+        return sender.send(command, targetName);
     }
 
     @Override

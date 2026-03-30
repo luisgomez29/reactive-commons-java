@@ -8,6 +8,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.reactivecommons.api.domain.Command;
 import org.reactivecommons.api.domain.DomainEvent;
 import org.reactivecommons.async.commons.communications.Message;
 import org.reactivecommons.async.commons.converters.json.DefaultObjectMapperSupplier;
@@ -44,6 +45,23 @@ class KafkaJacksonMessageConverterTest {
         assertEquals(message, converter.toMessage(message));
         // Assert
         assertEquals("test", message.getProperties().getTopic());
+        assertEquals(id, message.getProperties().getKey());
+        assertEquals("application/json", message.getProperties().getContentType());
+        assertEquals(expectedJson, new String(message.getBody()));
+    }
+
+    @Test
+    void shouldSerializeCommand() {
+        // Arrange
+        String id = UUID.randomUUID().toString();
+        MyEvent event = new MyEvent("name", 1);
+        Command<MyEvent> testCommand = new Command<>("testCommand", id, event);
+        String expectedJson = "{\"name\":\"testCommand\",\"commandId\":\"" + id + "\",\"data\":{\"name\":\"name\",\"age\":1}}";
+        // Act
+        Message message = converter.toMessage(testCommand);
+        assertEquals(message, converter.toMessage(message));
+        // Assert
+        assertEquals("testCommand", message.getProperties().getTopic());
         assertEquals(id, message.getProperties().getKey());
         assertEquals("application/json", message.getProperties().getContentType());
         assertEquals(expectedJson, new String(message.getBody()));

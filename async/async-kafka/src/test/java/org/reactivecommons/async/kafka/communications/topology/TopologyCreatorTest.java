@@ -21,6 +21,7 @@ import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -92,5 +93,47 @@ class TopologyCreatorTest {
         assertThrows(TopicNotFoundException.class, () ->
                 // Act
                 creator.checkTopic("topic3"));
+        // names() is called twice: once in constructor, once on cache-miss refresh
+        verify(listTopicsResult, times(2)).names();
+    }
+
+    @Test
+    void shouldFindTopicAfterRefreshWhenNotInInitialCache() {
+        // Arrange: at construction time topics don't include the DLQ topic
+        KafkaFutureImpl<Set<String>> initialNames = new KafkaFutureImpl<>();
+        initialNames.complete(Set.of("my-event"));
+        KafkaFutureImpl<Set<String>> refreshedNames = new KafkaFutureImpl<>();
+        refreshedNames.complete(Set.of("my-event", "my-event.dlq"));
+        doReturn(initialNames).doReturn(refreshedNames).when(listTopicsResult).names();
+        when(adminClient.listTopics(any(ListTopicsOptions.class))).thenReturn(listTopicsResult);
+        creator = new TopologyCreator(adminClient, customizations, true);
+        // Act & Assert: should NOT throw even though topic was absent at start
+        creator.checkTopic("my-event.dlq");
+        verify(listTopicsResult, times(2)).names();
+    }
+
+    @Test
+    void shouldCreateDlqTopicsWithDlqSuffix() {
+        // Arrange
+        KafkaFutureImpl<Set<String>> names = new KafkaFutureImpl<>();
+        names.complete(Set.of());
+        doReturn(names).when(listTopicsResult).names();
+        when(adminClient.listTopics(any(ListTopicsOptions.class))).thenReturn(listTopicsResult);
+
+        KafkaFutureImpl<Void> create = new KafkaFutureImpl<>();
+        create.complete(null);
+        doReturn(create).when(createTopicsResult).all();
+        when(adminClient.createTopics(any())).thenReturn(createTopicsResult);
+        creator = new TopologyCreator(adminClient, customizations, true);
+        // Act
+        Mono<Void> flow = creator.createDlqTopics(List.of("my-command", "other-event"));
+        // Assert
+        StepVerifier.create(flow).verifyComplete();
+        verify(adminClient, times(1)).createTopics(argThat(newTopics ->
+                newTopics.iterator().next().name().equals("my-command.dlq")
+        ));
+        verify(adminClient, times(1)).createTopics(argThat(newTopics ->
+                newTopics.iterator().next().name().equals("other-event.dlq")
+        ));
     }
 }

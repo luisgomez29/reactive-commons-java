@@ -9,62 +9,141 @@ import org.reactivecommons.api.domain.Command;
 import org.reactivecommons.async.api.AsyncQuery;
 import org.reactivecommons.async.api.DirectAsyncGateway;
 import org.reactivecommons.async.api.From;
+import org.reactivecommons.async.kafka.communications.ReactiveMessageSender;
+import reactor.core.publisher.Mono;
+import reactor.test.StepVerifier;
 
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class KafkaDirectAsyncGatewayTest {
-    private final DirectAsyncGateway directAsyncGateway = new KafkaDirectAsyncGateway();
-    private final String targetName = "targetName";
-    private final String domain = "domain";
-    private final long delay = 1000L;
+    @Mock
+    private ReactiveMessageSender sender;
     @Mock
     private CloudEvent cloudEvent;
-    @Mock
-    private Command<String> command;
     @Mock
     private AsyncQuery<String> query;
     @Mock
     private From from;
 
+    private final String targetName = "targetName";
+    private final String domain = "domain";
+    private final long delay = 1000L;
+
     @Test
-    void allMethodsAreNotImplemented() {
+    void shouldSendDomainCommand() {
+        Command<String> command = new Command<>("testCmd", "cmd-1", "data");
+        when(sender.send(any(Command.class), eq(targetName))).thenReturn(Mono.empty());
+        DirectAsyncGateway gateway = new KafkaDirectAsyncGateway(sender);
+
+        StepVerifier.create(gateway.sendCommand(command, targetName))
+                .verifyComplete();
+
+        verify(sender).send(command, targetName);
+    }
+
+    @Test
+    void shouldSendDomainCommandWithDelay() {
+        Command<String> command = new Command<>("testCmd", "cmd-1", "data");
+        when(sender.send(any(Command.class), eq(targetName))).thenReturn(Mono.empty());
+        DirectAsyncGateway gateway = new KafkaDirectAsyncGateway(sender);
+
+        StepVerifier.create(gateway.sendCommand(command, targetName, delay))
+                .verifyComplete();
+
+        verify(sender).send(command, targetName);
+    }
+
+    @Test
+    void shouldSendDomainCommandWithDomain() {
+        Command<String> command = new Command<>("testCmd", "cmd-1", "data");
+        when(sender.send(any(Command.class), eq(targetName))).thenReturn(Mono.empty());
+        DirectAsyncGateway gateway = new KafkaDirectAsyncGateway(sender);
+
+        StepVerifier.create(gateway.sendCommand(command, targetName, domain))
+                .verifyComplete();
+
+        verify(sender).send(command, targetName);
+    }
+
+    @Test
+    void shouldSendDomainCommandWithDelayAndDomain() {
+        Command<String> command = new Command<>("testCmd", "cmd-1", "data");
+        when(sender.send(any(Command.class), eq(targetName))).thenReturn(Mono.empty());
+        DirectAsyncGateway gateway = new KafkaDirectAsyncGateway(sender);
+
+        StepVerifier.create(gateway.sendCommand(command, targetName, delay, domain))
+                .verifyComplete();
+
+        verify(sender).send(command, targetName);
+    }
+
+    @Test
+    void shouldSendCloudEventCommand() {
+        when(sender.send(any(CloudEvent.class), eq(targetName))).thenReturn(Mono.empty());
+        DirectAsyncGateway gateway = new KafkaDirectAsyncGateway(sender);
+
+        StepVerifier.create(gateway.sendCommand(cloudEvent, targetName))
+                .verifyComplete();
+
+        verify(sender).send(cloudEvent, targetName);
+    }
+
+    @Test
+    void shouldSendCloudEventCommandWithDelay() {
+        when(sender.send(any(CloudEvent.class), eq(targetName))).thenReturn(Mono.empty());
+        DirectAsyncGateway gateway = new KafkaDirectAsyncGateway(sender);
+
+        StepVerifier.create(gateway.sendCommand(cloudEvent, targetName, delay))
+                .verifyComplete();
+
+        verify(sender).send(cloudEvent, targetName);
+    }
+
+    @Test
+    void shouldSendCloudEventCommandWithDomain() {
+        when(sender.send(any(CloudEvent.class), eq(targetName))).thenReturn(Mono.empty());
+        DirectAsyncGateway gateway = new KafkaDirectAsyncGateway(sender);
+
+        StepVerifier.create(gateway.sendCommand(cloudEvent, targetName, domain))
+                .verifyComplete();
+
+        verify(sender).send(cloudEvent, targetName);
+    }
+
+    @Test
+    void shouldSendCloudEventCommandWithDelayAndDomain() {
+        when(sender.send(any(CloudEvent.class), eq(targetName))).thenReturn(Mono.empty());
+        DirectAsyncGateway gateway = new KafkaDirectAsyncGateway(sender);
+
+        StepVerifier.create(gateway.sendCommand(cloudEvent, targetName, delay, domain))
+                .verifyComplete();
+
+        verify(sender).send(cloudEvent, targetName);
+    }
+
+    @Test
+    void requestReplyMethodsAreNotImplemented() {
+        DirectAsyncGateway gateway = new KafkaDirectAsyncGateway(sender);
+
         assertThrows(UnsupportedOperationException.class,
-                () -> directAsyncGateway.sendCommand(cloudEvent, targetName)
+                () -> gateway.requestReply(cloudEvent, targetName, CloudEvent.class)
         );
         assertThrows(UnsupportedOperationException.class,
-                () -> directAsyncGateway.sendCommand(cloudEvent, targetName, domain)
+                () -> gateway.requestReply(cloudEvent, targetName, CloudEvent.class, domain)
         );
         assertThrows(UnsupportedOperationException.class,
-                () -> directAsyncGateway.sendCommand(cloudEvent, targetName, delay)
+                () -> gateway.requestReply(query, targetName, CloudEvent.class)
         );
         assertThrows(UnsupportedOperationException.class,
-                () -> directAsyncGateway.sendCommand(cloudEvent, targetName, delay, domain)
+                () -> gateway.requestReply(query, targetName, CloudEvent.class, domain)
         );
         assertThrows(UnsupportedOperationException.class,
-                () -> directAsyncGateway.sendCommand(command, targetName)
+                () -> gateway.reply(targetName, from)
         );
-        assertThrows(UnsupportedOperationException.class,
-                () -> directAsyncGateway.sendCommand(command, targetName, domain)
-        );
-        assertThrows(UnsupportedOperationException.class,
-                () -> directAsyncGateway.sendCommand(command, targetName, delay)
-        );
-        assertThrows(UnsupportedOperationException.class,
-                () -> directAsyncGateway.sendCommand(command, targetName, delay, domain)
-        );
-        assertThrows(UnsupportedOperationException.class,
-                () -> directAsyncGateway.requestReply(cloudEvent, targetName, CloudEvent.class)
-        );
-        assertThrows(UnsupportedOperationException.class,
-                () -> directAsyncGateway.requestReply(cloudEvent, targetName, CloudEvent.class, domain)
-        );
-        assertThrows(UnsupportedOperationException.class,
-                () -> directAsyncGateway.requestReply(query, targetName, CloudEvent.class)
-        );
-        assertThrows(UnsupportedOperationException.class,
-                () -> directAsyncGateway.requestReply(query, targetName, CloudEvent.class, domain)
-        );
-        assertThrows(UnsupportedOperationException.class, () -> directAsyncGateway.reply(targetName, from));
     }
 }

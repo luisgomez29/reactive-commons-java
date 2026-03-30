@@ -1,6 +1,7 @@
 package org.reactivecommons.async.kafka.converters.json;
 
 import io.cloudevents.CloudEvent;
+import org.reactivecommons.api.domain.Command;
 import org.reactivecommons.api.domain.DomainEvent;
 import org.reactivecommons.async.commons.communications.Message;
 import org.reactivecommons.async.commons.converters.json.JacksonMessageConverter;
@@ -55,7 +56,14 @@ public class KafkaJacksonMessageConverter extends JacksonMessageConverter {
             headers.put(CONTENT_TYPE, APPLICATION_JSON);
             return props;
         }
-        // TODO: Add Command and AsyncQuery support
+
+        if (message instanceof Command<?> command) {
+            props.setKey(command.getCommandId());
+            props.setTopic(command.getName());
+
+            headers.put(CONTENT_TYPE, APPLICATION_JSON);
+            return props;
+        }
         throw new IllegalArgumentException("Message type not supported: " + message.getClass().getName());
     }
 }

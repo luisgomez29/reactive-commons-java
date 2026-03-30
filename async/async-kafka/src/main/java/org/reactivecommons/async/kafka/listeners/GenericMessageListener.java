@@ -66,7 +66,14 @@ public abstract class GenericMessageListener {
     }
 
     protected Mono<Void> setUpBindings(TopologyCreator creator) {
+        if (useDLQ) {
+            return creator.createTopics(topics).then(creator.createDlqTopics(getDlqBaseTopics()));
+        }
         return creator.createTopics(topics);
+    }
+
+    protected List<String> getDlqBaseTopics() {
+        return topics;
     }
 
     public void startListener(TopologyCreator creator) {
@@ -146,7 +153,7 @@ public abstract class GenericMessageListener {
             if (useDLQ) {
                 return discardNotifier
                         .notifyDiscard(message)
-                        .doOnSuccess(_a -> msj.receiverOffset().acknowledge())
+                        .doOnSuccess(a -> msj.receiverOffset().acknowledge())
                         .thenReturn(msj);
             }
             return Mono.just(msj);

@@ -76,6 +76,19 @@ public class ReactiveMessageSender {
         });
     }
 
+    public <V> Mono<Void> send(V message, String targetTopic) {
+        return Mono.create(sink -> {
+            KafkaMessage kafkaMessage = (KafkaMessage) messageConverter.toMessage(message);
+            ((KafkaMessage.KafkaMessageProperties) kafkaMessage.getProperties()).setTopic(targetTopic);
+            ProducerRecord<String, byte[]> producerRecord = createProducerRecord(kafkaMessage);
+            SenderRecord<String, byte[], String> senderRecord = SenderRecord.create(producerRecord,
+                    kafkaMessage.getProperties().getKey());
+            confirmations.put(senderRecord.key(), sink);
+            executorServiceEmit.submit(() -> fluxSinks.get((int) (System.currentTimeMillis() % SENDER_COUNT))
+                    .next(senderRecord));
+        });
+    }
+
     private <V> SenderRecord<String, byte[], String> createRecord(V object) {
         KafkaMessage message = (KafkaMessage) messageConverter.toMessage(object);
         ProducerRecord<String, byte[]> producerRecord = createProducerRecord(message);

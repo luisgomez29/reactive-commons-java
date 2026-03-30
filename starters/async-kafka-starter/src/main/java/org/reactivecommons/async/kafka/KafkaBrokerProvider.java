@@ -14,6 +14,7 @@ import org.reactivecommons.async.kafka.communications.topology.TopologyCreator;
 import org.reactivecommons.async.kafka.config.props.AsyncKafkaProps;
 import org.reactivecommons.async.kafka.converters.json.KafkaJacksonMessageConverter;
 import org.reactivecommons.async.kafka.health.KafkaReactiveHealthIndicator;
+import org.reactivecommons.async.kafka.listeners.ApplicationCommandListener;
 import org.reactivecommons.async.kafka.listeners.ApplicationEventListener;
 import org.reactivecommons.async.kafka.listeners.ApplicationNotificationsListener;
 import org.reactivecommons.async.starter.broker.BrokerProvider;
@@ -41,7 +42,7 @@ public record KafkaBrokerProvider(String domain,
 
     @Override
     public DirectAsyncGateway getDirectAsyncGateway() {
-        return new KafkaDirectAsyncGateway();
+        return new KafkaDirectAsyncGateway(sender);
     }
 
     @Override
@@ -80,7 +81,20 @@ public record KafkaBrokerProvider(String domain,
 
     @Override
     public void listenCommands(HandlerResolver resolver) {
-        // Implemented in the future
+        if (resolver.hasCommandHandlers()) {
+            DiscardNotifier commandsDiscardNotifier = message -> sender.send(message, props.getAppName() + ".dlq");
+            ApplicationCommandListener commandListener = new ApplicationCommandListener(receiver,
+                    resolver,
+                    converter,
+                    props.getWithDLQRetry(),
+                    props.getCreateTopology(),
+                    props.getMaxRetries(),
+                    props.getRetryDelay(),
+                    commandsDiscardNotifier,
+                    errorReporter,
+                    props.getAppName());
+            commandListener.startListener(topologyCreator);
+        }
     }
 
     @Override
