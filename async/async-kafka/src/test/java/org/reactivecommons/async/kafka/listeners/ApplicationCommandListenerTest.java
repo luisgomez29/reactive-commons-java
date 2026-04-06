@@ -45,6 +45,7 @@ class ApplicationCommandListenerTest {
 
     @BeforeEach
     void setup() {
+        when(resolver.getCommandNames()).thenReturn(List.of("create-order", "cancel-order"));
         applicationCommandListener = new ApplicationCommandListener(
                 receiver,
                 resolver,
@@ -99,14 +100,14 @@ class ApplicationCommandListenerTest {
     }
 
     @Test
-    void shouldCreateSingleDlqTopicUsingAppName() {
+    void shouldCreatePerCommandTopicsAndSingleDlqTopicForAppName() {
         TopologyCreator topologyCreator = mock(TopologyCreator.class);
         when(topologyCreator.createTopics(any(List.class))).thenReturn(Mono.empty());
         when(topologyCreator.createDlqTopics(any(List.class))).thenReturn(Mono.empty());
 
         applicationCommandListener.setUpBindings(topologyCreator).block();
 
-        verify(topologyCreator, times(1)).createTopics(List.of("testApp"));
+        verify(topologyCreator, times(1)).createTopics(List.of("create-order", "cancel-order"));
         verify(topologyCreator, times(1)).createDlqTopics(List.of("testApp"));
     }
 }

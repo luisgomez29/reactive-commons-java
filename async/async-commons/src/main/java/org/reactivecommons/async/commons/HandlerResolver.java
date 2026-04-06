@@ -74,6 +74,10 @@ public class HandlerResolver {
         return eventsToBind.values();
     }
 
+    public List<String> getCommandNames() {
+        return List.copyOf(commandHandlers.keySet());
+    }
+
     public List<String> getEventNames() {
         return List.copyOf(eventListeners.keySet());
     }

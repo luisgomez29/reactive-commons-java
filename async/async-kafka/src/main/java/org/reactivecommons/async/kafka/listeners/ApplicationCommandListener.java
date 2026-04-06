@@ -28,6 +28,7 @@ public class ApplicationCommandListener extends GenericMessageListener {
     private static final String TYPE = "type";
     private final MessageConverter messageConverter;
     private final HandlerResolver resolver;
+    private final String appName;
 
     public ApplicationCommandListener(ReactiveMessageListener receiver,
                                       HandlerResolver resolver,
@@ -40,9 +41,16 @@ public class ApplicationCommandListener extends GenericMessageListener {
                                       CustomReporter errorReporter,
                                       String appName) {
         super(receiver, withDLQRetry, createTopology, maxRetries, retryDelay, discardNotifier,
-                "command", errorReporter, appName + "-commands", List.of(appName));
+                "command", errorReporter, appName + "-commands", resolver.getCommandNames());
         this.resolver = resolver;
         this.messageConverter = messageConverter;
+        this.appName = appName;
+    }
+
+    // TODO: Check if necessary
+    @Override
+    protected List<String> getDlqBaseTopics() {
+        return List.of(appName);
     }
 
     @Override

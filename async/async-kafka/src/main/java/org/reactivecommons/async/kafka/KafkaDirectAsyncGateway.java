@@ -34,7 +34,7 @@ public class KafkaDirectAsyncGateway implements DirectAsyncGateway {
 
     @Override
     public <T> Mono<Void> sendCommand(Command<T> command, String targetName, long delayMillis, String domain) {
-        return sender.send(command, targetName);
+        return sender.send(command);
     }
 
     @Override
@@ -54,7 +54,7 @@ public class KafkaDirectAsyncGateway implements DirectAsyncGateway {
 
     @Override
     public Mono<Void> sendCommand(CloudEvent command, String targetName, long delayMillis, String domain) {
-        return sender.send(command, targetName);
+        return sender.send(command);
     }
 
     @Override

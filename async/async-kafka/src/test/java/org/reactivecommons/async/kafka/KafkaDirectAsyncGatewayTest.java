@@ -15,7 +15,6 @@ import reactor.test.StepVerifier;
 
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -37,93 +36,93 @@ class KafkaDirectAsyncGatewayTest {
     @Test
     void shouldSendDomainCommand() {
         Command<String> command = new Command<>("testCmd", "cmd-1", "data");
-        when(sender.send(any(Command.class), eq(targetName))).thenReturn(Mono.empty());
+        when(sender.send(any(Command.class))).thenReturn(Mono.empty());
         DirectAsyncGateway gateway = new KafkaDirectAsyncGateway(sender);
 
         StepVerifier.create(gateway.sendCommand(command, targetName))
                 .verifyComplete();
 
-        verify(sender).send(command, targetName);
+        verify(sender).send(command);
     }
 
     @Test
     void shouldSendDomainCommandWithDelay() {
         Command<String> command = new Command<>("testCmd", "cmd-1", "data");
-        when(sender.send(any(Command.class), eq(targetName))).thenReturn(Mono.empty());
+        when(sender.send(any(Command.class))).thenReturn(Mono.empty());
         DirectAsyncGateway gateway = new KafkaDirectAsyncGateway(sender);
 
         StepVerifier.create(gateway.sendCommand(command, targetName, delay))
                 .verifyComplete();
 
-        verify(sender).send(command, targetName);
+        verify(sender).send(command);
     }
 
     @Test
     void shouldSendDomainCommandWithDomain() {
         Command<String> command = new Command<>("testCmd", "cmd-1", "data");
-        when(sender.send(any(Command.class), eq(targetName))).thenReturn(Mono.empty());
+        when(sender.send(any(Command.class))).thenReturn(Mono.empty());
         DirectAsyncGateway gateway = new KafkaDirectAsyncGateway(sender);
 
         StepVerifier.create(gateway.sendCommand(command, targetName, domain))
                 .verifyComplete();
 
-        verify(sender).send(command, targetName);
+        verify(sender).send(command);
     }
 
     @Test
     void shouldSendDomainCommandWithDelayAndDomain() {
         Command<String> command = new Command<>("testCmd", "cmd-1", "data");
-        when(sender.send(any(Command.class), eq(targetName))).thenReturn(Mono.empty());
+        when(sender.send(any(Command.class))).thenReturn(Mono.empty());
         DirectAsyncGateway gateway = new KafkaDirectAsyncGateway(sender);
 
         StepVerifier.create(gateway.sendCommand(command, targetName, delay, domain))
                 .verifyComplete();
 
-        verify(sender).send(command, targetName);
+        verify(sender).send(command);
     }
 
     @Test
     void shouldSendCloudEventCommand() {
-        when(sender.send(any(CloudEvent.class), eq(targetName))).thenReturn(Mono.empty());
+        when(sender.send(any(CloudEvent.class))).thenReturn(Mono.empty());
         DirectAsyncGateway gateway = new KafkaDirectAsyncGateway(sender);
 
         StepVerifier.create(gateway.sendCommand(cloudEvent, targetName))
                 .verifyComplete();
 
-        verify(sender).send(cloudEvent, targetName);
+        verify(sender).send(cloudEvent);
     }
 
     @Test
     void shouldSendCloudEventCommandWithDelay() {
-        when(sender.send(any(CloudEvent.class), eq(targetName))).thenReturn(Mono.empty());
+        when(sender.send(any(CloudEvent.class))).thenReturn(Mono.empty());
         DirectAsyncGateway gateway = new KafkaDirectAsyncGateway(sender);
 
         StepVerifier.create(gateway.sendCommand(cloudEvent, targetName, delay))
                 .verifyComplete();
 
-        verify(sender).send(cloudEvent, targetName);
+        verify(sender).send(cloudEvent);
     }
 
     @Test
     void shouldSendCloudEventCommandWithDomain() {
-        when(sender.send(any(CloudEvent.class), eq(targetName))).thenReturn(Mono.empty());
+        when(sender.send(any(CloudEvent.class))).thenReturn(Mono.empty());
         DirectAsyncGateway gateway = new KafkaDirectAsyncGateway(sender);
 
         StepVerifier.create(gateway.sendCommand(cloudEvent, targetName, domain))
                 .verifyComplete();
 
-        verify(sender).send(cloudEvent, targetName);
+        verify(sender).send(cloudEvent);
     }
 
     @Test
     void shouldSendCloudEventCommandWithDelayAndDomain() {
-        when(sender.send(any(CloudEvent.class), eq(targetName))).thenReturn(Mono.empty());
+        when(sender.send(any(CloudEvent.class))).thenReturn(Mono.empty());
         DirectAsyncGateway gateway = new KafkaDirectAsyncGateway(sender);
 
         StepVerifier.create(gateway.sendCommand(cloudEvent, targetName, delay, domain))
                 .verifyComplete();
 
-        verify(sender).send(cloudEvent, targetName);
+        verify(sender).send(cloudEvent);
     }
 
     @Test
