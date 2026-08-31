@@ -4,6 +4,10 @@ sidebar_position: 4
 
 # Making an Async Query
 
+:::warning Not available on Kafka Async queries are **not supported by the Kafka implementation** of Reactive Commons,
+because they rely on a request-reply pattern. Use the RabbitMQ implementation for this feature.
+:::
+
 ## API specification
 
 ### AsyncQuery model

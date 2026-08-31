@@ -4,6 +4,11 @@ sidebar_position: 7
 
 # Handling Commands
 
+:::warning Not available on Kafka Commands are **not supported by the Kafka implementation** of Reactive Commons. Over
+Kafka you can only handle
+[domain events](./6-handling-domain-events.md) and notification events.
+:::
+
 ## HandlerRegistry configuration
 
 To listen a Command you should register it in the HandlerRegistry and make it available as a Bean.

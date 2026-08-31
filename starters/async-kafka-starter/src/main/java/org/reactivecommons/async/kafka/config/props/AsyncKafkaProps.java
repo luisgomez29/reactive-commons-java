@@ -28,6 +28,14 @@ public class AsyncKafkaProps extends GenericAsyncProps<KafkaProperties> {
     private DomainProps domain = new DomainProps();
 
     /**
+     * Apicurio Registry schema validation of this domain. Only read when the
+     * {@code async-commons-kafka-apicurio-starter} dependency is present.
+     */
+    @NestedConfigurationProperty
+    @Builder.Default
+    private ApicurioValidationProperties apicurio = new ApicurioValidationProperties();
+
+    /**
      * -1 will be considered default value.
      * When withDLQRetry is true, it will be retried 10 times.
      * When withDLQRetry is false, it will be retried indefinitely.

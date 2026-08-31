@@ -1,0 +1,36 @@
+package org.reactivecommons.async.starter.impl.common.kafka.apicurio;
+
+import org.junit.jupiter.api.Test;
+import org.reactivecommons.async.kafka.apicurio.ApicurioSchemaValidator;
+import org.reactivecommons.async.kafka.config.props.AsyncKafkaPropsDomain;
+import org.reactivecommons.async.kafka.validation.DomainSchemaValidatorProvider;
+import org.reactivecommons.async.starter.config.ReactiveCommonsConfig;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+/**
+ * The Apicurio configuration lives under the package scanned by {@link ReactiveCommonsConfig}, so adding the
+ * starter to the classpath is enough to enable schema validation.
+ */
+@SpringBootTest(classes = ReactiveCommonsConfig.class,
+        properties = "reactive.commons.kafka.app.apicurio.url=http://localhost:8080/apis/registry/v3")
+class ApicurioComponentScanTest {
+
+    @Autowired
+    private DomainSchemaValidatorProvider schemaValidatorProvider;
+
+    @Autowired
+    private AsyncKafkaPropsDomain propsDomain;
+
+    @Test
+    void shouldDiscoverApicurioValidatorByComponentScan() {
+        assertThat(schemaValidatorProvider.forDomain("app")).isInstanceOf(ApicurioSchemaValidator.class);
+    }
+
+    @Test
+    void shouldReadOnlyTheDomainsDeclaredInTheConfigurationFile() {
+        assertThat(propsDomain).containsOnlyKeys("app");
+    }
+}

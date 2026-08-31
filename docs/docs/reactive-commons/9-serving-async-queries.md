@@ -4,6 +4,10 @@ sidebar_position: 9
 
 # Serving Async Queries
 
+:::warning Not available on Kafka Async queries are **not supported by the Kafka implementation** of Reactive Commons.
+Over Kafka you can only handle [domain events](./6-handling-domain-events.md) and notification events.
+:::
+
 ## HandlerRegistry configuration
 
 To serve an async query you should register it in the HandlerRegistry and make it available as a Bean

@@ -20,7 +20,7 @@ reactive:
   commons:
     kafka:
       app: # this is the name of the default domain
-        withDLQRetry: false # if you want to have dlq queues with retries you can set it to true, you cannot change it after queues are created, because you will get an error, so you should delete topology before the change.
+        withDLQRetry: false # if you want to have dlq topics with retries you can set it to true, you cannot change it after queues are created, because you will get an error, so you should delete topology before the change.
         maxRetries: -1 # -1 will be considered default value. When withDLQRetry is true, it will be retried 10 times. When withDLQRetry is false, it will be retried indefinitely.
         retryDelay: 1000 # interval for message retries, with and without DLQRetry
         checkExistingTopics: true # if you don't want to verify topic existence before send a record you can set it to false
@@ -39,6 +39,11 @@ reactive:
         connectionProperties: # you can override the connection properties of each domain
           bootstrap-servers: localhost:9093
 ```
+
+## Schema validation
+
+Payloads can be validated against a JSON Schema registered in an Apicurio Registry, both when publishing and when
+consuming. See [Kafka Schema Validation (Apicurio)](./3-kafka-schema-validation.md).
 
 ## Connection properties
 

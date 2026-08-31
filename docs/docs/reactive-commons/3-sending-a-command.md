@@ -4,6 +4,11 @@ sidebar_position: 3
 
 # Sending a Command
 
+:::warning Not available on Kafka Commands are **not supported by the Kafka implementation** of Reactive Commons. Use
+the RabbitMQ implementation, or model the interaction as a [domain event](./2-sending-a-domain-event.md) when the
+transport must be Kafka.
+:::
+
 ## API specification
 
 ### Command model
