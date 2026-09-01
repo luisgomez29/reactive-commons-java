@@ -48,26 +48,47 @@ reactive:
         connection-properties:
           bootstrap-servers: "localhost:9092"
         apicurio:
-          enabled: true                 # default true, set to false to disable validation
-          url: "http://localhost:8080/apis/registry/v3"
-          group-id:                     # optional. When empty, Apicurio uses the "default" group
-          artifact-id:                  # optional. When empty, "<topic>-value" is used
-          version:                      # optional. When empty, the latest version is used
-          find-latest: true             # resolve the latest version when no version is set
-          validate-outbound: true       # validate before publishing
-          validate-inbound: true        # validate every consumed record
-          trust-inbound-coordinates: false  # let a consumed record select the artifact through its headers
-          properties: # any other Apicurio serde property, with its original key
+          enabled: true                     # default true, set to false to disable validation
+          validate-outbound: true           # validate before publishing
+          validate-inbound: true            # validate every consumed record
+          properties: # every Apicurio setting, with its original key
+            apicurio.registry.url: "http://localhost:8080/apis/registry/v3"
+            apicurio.registry.artifact.group-id: "kafka"    # optional, defaults to the "default" group
+            apicurio.registry.artifact.artifact-id: "person" # optional, defaults to "<topic>-value"
+            # One of these two is REQUIRED: either pin the version, or opt into the latest one
+            apicurio.registry.artifact.version: "1"
+            apicurio.registry.find-latest: false             # default false, as in Apicurio
             apicurio.registry.auth.client.id: "${REGISTRY_CLIENT_ID}"
             apicurio.registry.auth.client.secret: "${REGISTRY_CLIENT_SECRET}"
             apicurio.registry.auth.service.token.endpoint: "${REGISTRY_TOKEN_ENDPOINT}"
 ```
 
+Only the switches that have no Apicurio equivalent are named by Reactive Commons: `enabled`, `validate-outbound` and
+`validate-inbound`. **Everything the registry understands keeps its original Apicurio key** inside `properties`, so an
+existing serde configuration can be pasted as is and there is never a second name for the same setting.
+
+| Apicurio key                             | Meaning                                                      |
+|------------------------------------------|--------------------------------------------------------------|
+| `apicurio.registry.url`                  | Registry endpoint, **required**                              |
+| `apicurio.registry.artifact.group-id`    | Artifact group. Empty means the `default` group              |
+| `apicurio.registry.artifact.artifact-id` | Artifact. Empty means `<topic>-value`                        |
+| `apicurio.registry.artifact.version`     | Version. Empty means "the one of each record", see below     |
+| `apicurio.registry.find-latest`          | Resolve the latest version when none is set. Default `false` |
+| `apicurio.registry.auth.*`               | Credentials used to reach the registry                       |
+| `apicurio.registry.request.ssl.*`        | TLS material                                                 |
+
+:::info The version resolution is mandatory `apicurio.registry.find-latest` defaults to `false`, exactly as in Apicurio,
+so **every domain must state how the schema version is resolved**: either pin
+`apicurio.registry.artifact.version`, or set `apicurio.registry.find-latest: true`. Leaving both out fails at startup,
+see [`apicurio.registry.find-latest`](#apicurioregistryfind-latest).
+:::
+
 A domain without an `apicurio` block is not validated, so the starter can be on the classpath while only some domains
 use it.
 
 :::caution These values apply to **every topic of the domain**. `validate-outbound` and `validate-inbound` select a
-*direction*, never a topic, and setting `artifact-id` forces that one artifact on all of them. See
+*direction*, never a topic, and setting `apicurio.registry.artifact.artifact-id` forces that one artifact on all of
+them. See
 [Per topic granularity](#per-topic-granularity) when a single topic needs to be treated differently.
 :::
 
@@ -94,6 +115,7 @@ configuration files are handed over to the customizer, which can complete or ove
 built:
 
 ```java
+import io.apicurio.registry.resolver.config.SchemaResolverConfig;
 import io.apicurio.registry.serde.config.SerdeConfig;
 import org.reactivecommons.async.kafka.config.props.AsyncKafkaPropsDomain;
 import org.springframework.context.annotation.Bean;
@@ -105,7 +127,7 @@ public class ApicurioConfig {
     @Bean
     public AsyncKafkaPropsDomain.KafkaPropsCustomizer kafkaPropsCustomizer(RegistryCredentials credentials) {
         return domainProperties -> domainProperties.customize("app", props -> {
-            props.getApicurio().setUrl(credentials.url());
+          props.getApicurio().getProperties().put(SchemaResolverConfig.REGISTRY_URL, credentials.url());
             props.getApicurio().getProperties().put(SerdeConfig.AUTH_CLIENT_ID, credentials.clientId());
             props.getApicurio().getProperties().put(SerdeConfig.AUTH_CLIENT_SECRET, credentials.clientSecret());
         });
@@ -138,15 +160,19 @@ reactive:
           consumer:
             group-id: my-service.consumer-group
         apicurio:
-          url: "http://localhost:8080/apis/registry/v3"
-          group-id: kafka
+          properties:
+            apicurio.registry.url: "http://localhost:8080/apis/registry/v3"
+            apicurio.registry.artifact.group-id: kafka
+            apicurio.registry.find-latest: true
       accounts:
         connection-properties:
           consumer:
             group-id: my-service.consumer-group
         apicurio:
-          url: "http://accounts-registry:8080/apis/registry/v3"
-          group-id: accounts
+          properties:
+            apicurio.registry.url: "http://accounts-registry:8080/apis/registry/v3"
+            apicurio.registry.artifact.group-id: accounts
+            apicurio.registry.find-latest: true
           validate-outbound: false      # accounts publishes without validating
 ```
 
@@ -158,12 +184,15 @@ reactive:
   commons:
     kafka:
       app:
-        apicurio: &apicurio
-          url: "http://localhost:8080/apis/registry/v3"
+        apicurio:
+          properties: &registry
+            apicurio.registry.url: "http://localhost:8080/apis/registry/v3"
+            apicurio.registry.find-latest: true
       accounts:
         apicurio:
-          <<: *apicurio
-          group-id: accounts
+          properties:
+            <<: *registry
+            apicurio.registry.artifact.group-id: accounts
 ```
 
 A domain is left unvalidated either by omitting its `apicurio` block or with `enabled: false`:
@@ -199,20 +228,25 @@ reactive:
         connection-properties:
           bootstrap-servers: "broker-a:9092"
         apicurio:
-          url: "http://registry:8080/apis/registry/v3"
-          group-id: app                 # keeps app's event.push apart from accounts'
+          properties:
+            apicurio.registry.url: "http://registry:8080/apis/registry/v3"
+            apicurio.registry.artifact.group-id: app   # keeps app's event.push apart from accounts'
+            apicurio.registry.find-latest: true
       accounts:
         connection-properties:
           bootstrap-servers: "broker-b:9092"
         apicurio:
-          url: "http://registry:8080/apis/registry/v3"
-          group-id: accounts
+          properties:
+            apicurio.registry.url: "http://registry:8080/apis/registry/v3"
+            apicurio.registry.artifact.group-id: accounts
+            apicurio.registry.find-latest: true
 ```
 
-Give each domain its own `group-id` when the same topic name means different things in each cluster, and share one group
+Give each domain its own `apicurio.registry.artifact.group-id` when the same topic name means different things in each
+cluster, and share one group
 when the intention is precisely that both clusters honour a single contract.
 
-### About `group-id`
+### About `apicurio.registry.artifact.group-id`
 
 Leaving it empty is the same as setting it to `default`: when no group is given, Apicurio's
 `ArtifactReferenceImpl.build()` sets the group to the literal `"default"`, which is the group the registry uses for
@@ -223,10 +257,10 @@ group.
 
 They act on different axes and none of them replaces the other:
 
-| Property                                 | Effect                                                                                                                                                                  |
-|------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `enabled: false`                         | No Apicurio validator is built for the domain and Reactive Commons keeps its no-op validator. The registry is never contacted, so `url` and credentials are not needed. |
-| `validate-outbound` / `validate-inbound` | The validator **is** created and connected to the registry, only the given direction is skipped.                                                                        |
+| Property                                 | Effect                                                                                                                                                                                    |
+|------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `enabled: false`                         | No Apicurio validator is built for the domain and Reactive Commons keeps its no-op validator. The registry is never contacted, so `apicurio.registry.url` and credentials are not needed. |
+| `validate-outbound` / `validate-inbound` | The validator **is** created and connected to the registry, only the given direction is skipped.                                                                                          |
 
 Apicurio itself has a **single** switch, `apicurio.registry.serde.validation-enabled`
 ([
@@ -254,6 +288,11 @@ If the intention is to turn the feature off, use `enabled: false`, which does no
 :::danger Reactive Commons also **fails at startup** when `properties` sets `apicurio.registry.headers.enabled: false`.
 The schema coordinates always travel in the record headers, so that property may only be set to `true`. See
 [Why the schema coordinates are always written](#why-the-schema-coordinates-are-always-written).
+:::
+
+:::danger Reactive Commons also **fails at startup** when a domain does not state how the schema version resolves, that
+is with an empty `apicurio.registry.artifact.version` and `apicurio.registry.find-latest` absent or `false`. See
+[`apicurio.registry.find-latest`](#apicurioregistryfind-latest).
 :::
 
 :::caution
@@ -288,9 +327,8 @@ them would be losing version fidelity, and that failure is silent:
 
 - **While the schema has a single version**, everything works. The consumer falls back to the configured coordinates,
   resolves the very same artifact, and validation passes.
-- **The day the schema evolves**, records already published in the topic start being validated against whatever
-  `find-latest` returns *now* instead of the version they were produced with, and previously valid records begin to
-  fail.
+- **The day the schema evolves**, records already published in the topic start being validated against the **latest**
+  version instead of the one they were produced with, and previously valid records begin to fail.
 
 Because the option can only turn a working setup into one that breaks later, it is rejected instead of honoured.
 Consumers that do not understand the headers simply ignore them, so writing them is always safe.
@@ -301,17 +339,60 @@ keeps the 2.x behaviour and always writes them, so the value is forced to `true`
 
 ### Which artifact is used
 
-| Situation                                                | Artifact resolved                                                 |
-|----------------------------------------------------------|-------------------------------------------------------------------|
-| `artifact-id` is configured                              | that artifact, for every topic                                    |
-| `artifact-id` is empty                                   | `<topic>-value` (same convention as Apicurio's `TopicIdStrategy`) |
-| Consuming a record whose headers name the artifact above | the same artifact, at the **version** of the headers              |
-| Consuming a record whose headers name another artifact   | the configured artifact, the headers are ignored                  |
+| Situation                                                                             | Artifact resolved                                                 |
+|---------------------------------------------------------------------------------------|-------------------------------------------------------------------|
+| `apicurio.registry.artifact.artifact-id` is configured                                | that artifact, for every topic                                    |
+| `apicurio.registry.artifact.artifact-id` is empty                                     | `<topic>-value` (same convention as Apicurio's `TopicIdStrategy`) |
+| **`apicurio.registry.artifact.version` is configured**                                | **that version, always: the headers of a record cannot move it**  |
+| `apicurio.registry.artifact.version` is empty and the headers name the artifact above | the same artifact, at the **version** of the headers              |
+| `apicurio.registry.artifact.version` is empty and the record carries no version       | the **latest** version of the artifact                            |
 
-On the consumer side the artifact is always the one configured for the topic, and only the **version** is taken from the
-record headers, so a message keeps being validated against the very same schema version its producer used while it can
-never point the consumer somewhere else. If the record has no usable headers, the configured artifact is resolved at its
-latest version.
+On the consumer side the artifact is always the one configured for the topic. The **version** is the only thing that may
+come from the record headers, and only when it is not pinned in the configuration, so a message keeps being validated
+against the very same schema version its producer used while it can never point the consumer somewhere else.
+
+:::caution Pinning `apicurio.registry.artifact.version` disables the version fidelity Setting
+`apicurio.registry.artifact.version` declares the single contract the topic accepts, so **every** record is validated
+against it no matter what its headers say. That is what you want to enforce one version; leave
+`apicurio.registry.artifact.version` empty for each record to be validated against the version it was published with,
+which is what keeps old records valid after the schema evolves.
+:::
+
+### `apicurio.registry.find-latest`
+
+It keeps the meaning **and the default** it has in Apicurio: it resolves the latest version of the artifact when no
+explicit version is configured, and it is `false` unless stated otherwise.
+
+| Configuration                                  | Version resolved                          |
+|------------------------------------------------|-------------------------------------------|
+| `apicurio.registry.artifact.version` is set    | that version, `find-latest` is irrelevant |
+| version empty, `find-latest: true`             | the latest version of the artifact        |
+| version empty, `find-latest` absent or `false` | **rejected at startup**                   |
+
+:::danger The version resolution has to be explicit `find-latest` keeps the Apicurio default of `false`, so leaving it
+out is the same as disabling it and a domain that also has no version **fails at startup**.
+
+Apicurio itself would accept the combination, but not do what the flag says: with a JSON Schema its resolver cannot
+derive the schema from the record, so it falls through to resolving the artifact by coordinates and, with no version,
+obtains **the latest one anyway**. Rather than letting `find-latest: false` silently resolve the latest version, the
+decision is required up front:
+
+```
+No schema version could be resolved for domain app:
+reactive.commons.kafka.app.apicurio.properties.apicurio.registry.artifact.version is empty and
+reactive.commons.kafka.app.apicurio.properties.apicurio.registry.find-latest is false, which is its default in
+Apicurio. Set reactive.commons.kafka.app.apicurio.properties.apicurio.registry.artifact.version to pin the topic to
+a single version, or set reactive.commons.kafka.app.apicurio.properties.apicurio.registry.find-latest=true to
+validate against the latest one.
+```
+
+This applies to the whole domain, whichever direction is being validated.
+:::
+
+:::tip Prefer an explicit version Of the ways to determine a version, `apicurio.registry.artifact.version` is the only
+one that does not depend on what the registry considers latest at any given moment. Set it when the topic must honour a
+single contract.
+:::
 
 :::danger Why the headers cannot choose the artifact The headers are written by whoever produced the record, so trusting
 them completely would mean letting the producer choose the schema its own payload is validated against: pointing them at
@@ -319,32 +400,21 @@ a permissive artifact registered anywhere in the registry turns inbound validati
 record at a different artifact turns the consumer into an amplifier of requests against the registry.
 :::
 
-`trust-inbound-coordinates: true` restores the unrestricted behaviour, where a content id, global id or full set of
-coordinates coming in the headers resolves whatever it names.
-
-#### When `trust-inbound-coordinates` is needed
+#### Records identified by content, not by name
 
 A content id, a global id and a content hash identify a schema by its content, so the registry cannot tell which
-artifact they belong to: resolving one of them returns the schema and nothing else. There is no way to check that it is
-the artifact of the topic, which is why honouring them has to be an explicit decision.
+artifact they belong to: resolving one of them returns the schema and nothing else, with no way to check that it is the
+artifact of the topic. Those coordinates are therefore always discarded.
 
-| Who produces the records                                       | What travels in the headers | Strict, the default                     | With `trust-inbound-coordinates` |
-|----------------------------------------------------------------|-----------------------------|-----------------------------------------|----------------------------------|
-| Reactive Commons                                               | group, artifact and version | The version is honoured                 | Same                             |
-| Apicurio Kafka serdes, default configuration                   | **content id**              | Ignored, the configured version is used | The exact schema is resolved     |
-| Apicurio Kafka serdes with `apicurio.registry.use-id=globalId` | global id                   | Ignored                                 | The exact schema is resolved     |
+| Who produces the records                                       | What travels in the headers | How it is validated                        |
+|----------------------------------------------------------------|-----------------------------|--------------------------------------------|
+| Reactive Commons                                               | group, artifact and version | Against the version of the record          |
+| Apicurio Kafka serdes, default configuration                   | **content id**              | Against the version this domain configured |
+| Apicurio Kafka serdes with `apicurio.registry.use-id=globalId` | global id                   | Against the version this domain configured |
 
-So a Reactive Commons producer never needs it: it writes the full coordinates, and the strict mode already keeps every
-record validated against the version it was published with.
-
-It becomes relevant when consuming a topic **produced by an application that uses the Apicurio serdes**. Leaving it off
-there is not wrong, only less precise: records are validated against whatever version the configuration resolves rather
-than the one they carry. That works while the schema has a single version and starts rejecting old records the day it
-evolves, so the rejection message points at the coordinates that were ignored and names this property.
-
-:::caution Enable it only when every producer of the topic is trusted. It hands the choice of the schema to whoever
-publishes the record, which is exactly what the strict mode prevents.
-:::
+A Reactive Commons producer is therefore validated with full version fidelity, while records coming from the Apicurio
+serdes are validated against the contract the consumer declared. Since the version a domain accepts is explicit, this is
+the intended behaviour: a record published against another version is rejected instead of silently validated against it.
 
 The resolved schemas are **cached** by the Apicurio schema resolver, so the registry is not called for every message.
 
@@ -365,8 +435,8 @@ are therefore changed with respect to the Apicurio serdes, both overridable thro
 | `apicurio.registry.check-period-ms`        | `30000`          | `1800000`                | A registered version is immutable, so re-resolving it twice a minute only puts a blocking call back into the hot path. |
 | `apicurio.registry.fault-tolerant-refresh` | `false`          | `true`                   | A registry that blinks while an entry is refreshed keeps serving the cached schema instead of failing the message.     |
 
-:::tip Keep the registry close to the application, and lower `check-period-ms` only if `find-latest` has to pick up new
-versions quickly.
+:::tip Keep the registry close to the application, and lower `check-period-ms` only if a new latest version has to be
+picked up quickly.
 :::
 
 ## What is validated: the whole record value

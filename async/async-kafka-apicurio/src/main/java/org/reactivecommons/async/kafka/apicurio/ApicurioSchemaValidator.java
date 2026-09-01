@@ -65,7 +65,6 @@ public class ApicurioSchemaValidator implements SchemaValidator, Closeable {
     private final ObjectMapper objectMapper;
     private final boolean validateOutbound;
     private final boolean validateInbound;
-    private final boolean trustInboundCoordinates;
 
     @Builder
     public ApicurioSchemaValidator(SchemaResolver<JsonSchema, Object> schemaResolver,
@@ -74,8 +73,7 @@ public class ApicurioSchemaValidator implements SchemaValidator, Closeable {
                                    ArtifactReferenceProvider artifactReferenceProvider,
                                    ObjectMapper objectMapper,
                                    Boolean validateOutbound,
-                                   Boolean validateInbound,
-                                   Boolean trustInboundCoordinates) {
+                                   Boolean validateInbound) {
         this.schemaResolver = schemaResolver;
         this.ownsResolver = ownsResolver == null || ownsResolver;
         this.headersHandler = headersHandler;
@@ -83,7 +81,6 @@ public class ApicurioSchemaValidator implements SchemaValidator, Closeable {
         this.objectMapper = objectMapper == null ? new ObjectMapper() : objectMapper;
         this.validateOutbound = validateOutbound == null || validateOutbound;
         this.validateInbound = validateInbound == null || validateInbound;
-        this.trustInboundCoordinates = trustInboundCoordinates != null && trustInboundCoordinates;
         if (!this.validateOutbound && !this.validateInbound) {
             throw new IllegalArgumentException("An ApicurioSchemaValidator must validate at least one direction: "
                     + "with validateOutbound and validateInbound both disabled it would connect to the registry "
@@ -130,10 +127,22 @@ public class ApicurioSchemaValidator implements SchemaValidator, Closeable {
         }
         ArtifactReference expected = artifactReferenceProvider.referenceFor(topic);
         InboundArtifact artifact = inboundArtifact(expected, headers);
-        try {
-            validate(topic, payload, resolve(topic, artifact.reference()).getParsedSchema());
-        } catch (SchemaValidationException e) {
-            throw artifact.discarded() == null ? e : explainDiscardedCoordinates(e, artifact.discarded());
+        validate(topic, payload, resolve(topic, artifact.reference()).getParsedSchema(), artifact.hint());
+    }
+
+    /**
+     * Why the coordinates carried by a record were not used to choose the artifact it is validated against.
+     */
+    private enum Discarded {
+
+        PINNED_VERSION("the version of this topic is pinned by configuration"),
+        FOREIGN_ARTIFACT("they do not name the artifact configured for this topic, which is the only one this "
+                + "domain validates against");
+
+        private final String reason;
+
+        Discarded(String reason) {
+            this.reason = reason;
         }
     }
 
@@ -141,10 +150,25 @@ public class ApicurioSchemaValidator implements SchemaValidator, Closeable {
      * The artifact an incoming record is validated against, along with the coordinates that were discarded to
      * choose it, if any.
      */
-    private record InboundArtifact(ArtifactReference reference, ArtifactReference discarded) {
+    private record InboundArtifact(ArtifactReference reference, ArtifactReference discarded, Discarded reason) {
 
         static InboundArtifact of(ArtifactReference reference) {
-            return new InboundArtifact(reference, null);
+            return new InboundArtifact(reference, null, null);
+        }
+
+        /**
+         * Explains, only when a record is rejected, that it was not checked against the schema it names. Such a
+         * setup looks healthy until the schema evolves or a producer moves to another version, so the reason is
+         * put where it is actually read.
+         *
+         * @return the explanation to append to the rejection, or {@code null} when nothing was discarded
+         */
+        String hint() {
+            if (discarded == null) {
+                return null;
+            }
+            return String.format("The record carried the schema coordinates %s but it was validated against %s, "
+                    + "because %s", discarded, reference, reason.reason);
         }
     }
 
@@ -154,26 +178,30 @@ public class ApicurioSchemaValidator implements SchemaValidator, Closeable {
      * The headers are written by whoever produced the record, so they cannot be allowed to select the artifact:
      * a producer could point at a permissive schema registered anywhere in the registry and make its own payload
      * pass, or make every record resolve a different artifact and turn the consumer into an amplifier against the
-     * registry. Only the <em>version</em> is taken from the headers, and only when they name the artifact this
+     * registry. At most the <em>version</em> is taken from the headers, and only when they name the artifact this
      * topic is already expected to use, which is what keeps old records validated against the version they were
      * published with.
      * <p>
-     * {@code trustInboundCoordinates} restores the unrestricted behavior for topics whose producers are trusted,
-     * for instance when they use the Apicurio serdes, which identify the schema by content id instead of by name.
+     * A version configured explicitly wins over the one of the record: pinning it is how a topic declares the
+     * single contract it accepts, so a producer cannot move the consumer onto another version by publishing it in
+     * the headers. Leave the version empty for the records to be validated against their own version.
      */
     private InboundArtifact inboundArtifact(ArtifactReference expected, Headers headers) {
         ArtifactReference fromHeaders = readHeaders(headers);
         if (fromHeaders == null) {
             return InboundArtifact.of(expected);
         }
-        if (trustInboundCoordinates) {
-            return InboundArtifact.of(fromHeaders);
+        if (isSet(expected.getVersion())) {
+            return discard(expected, fromHeaders, Discarded.PINNED_VERSION);
         }
         String version = fromHeaders.getVersion();
-        if (version == null || version.isBlank() || !identifiesSameArtifact(expected, fromHeaders)) {
-            log.log(Level.FINE, "Ignoring the schema coordinates {0} of an incoming record, the topic is validated "
-                    + "against {1}", new Object[]{fromHeaders, expected});
-            return new InboundArtifact(expected, fromHeaders);
+        if (!identifiesSameArtifact(expected, fromHeaders)) {
+            return discard(expected, fromHeaders, Discarded.FOREIGN_ARTIFACT);
+        }
+        if (!isSet(version)) {
+            // They name the very artifact of the topic and carry no version, so there is nothing to take from
+            // them and nothing to report either
+            return InboundArtifact.of(expected);
         }
         return InboundArtifact.of(ArtifactReference.builder()
                 .groupId(expected.getGroupId())
@@ -182,22 +210,23 @@ public class ApicurioSchemaValidator implements SchemaValidator, Closeable {
                 .build());
     }
 
+    private static InboundArtifact discard(ArtifactReference expected, ArtifactReference fromHeaders,
+                                           Discarded reason) {
+        log.log(Level.FINE, "Ignoring the schema coordinates {0} of an incoming record, the topic is validated "
+                + "against {1}", new Object[]{fromHeaders, expected});
+        return new InboundArtifact(expected, fromHeaders, reason);
+    }
+
+    private static boolean isSet(String value) {
+        return value != null && !value.isBlank();
+    }
+
     /**
      * Points at the discarded coordinates when a record is rejected.
      * <p>
-     * A producer that identifies the schema by content id, as the Apicurio serdes do by default, cannot be matched
-     * against the artifact of the topic, so its records are validated against the configured version instead of the
-     * one they were published with. That only starts failing once the schema evolves, long after the setup looked
-     * healthy, so the hint is added where it is actually read: the rejection itself.
+     * A record validated against an artifact other than the one it names fails in ways that are hard to read: the
+     * setup looks healthy until the schema evolves or until a producer moves to another version.
      */
-    private static SchemaValidationException explainDiscardedCoordinates(SchemaValidationException failure,
-                                                                         ArtifactReference discarded) {
-        return new SchemaValidationException(failure.getMessage() + ". The record carried the schema coordinates "
-                + discarded + ", which do not name the artifact configured for this topic and were therefore "
-                + "ignored, so it was validated against the configured version. Set trust-inbound-coordinates to "
-                + "honour them when the producers of this topic are trusted", failure);
-    }
-
     private static boolean identifiesSameArtifact(ArtifactReference expected, ArtifactReference fromHeaders) {
         return expected.getArtifactId() != null
                 && expected.getArtifactId().equals(fromHeaders.getArtifactId())
@@ -242,6 +271,10 @@ public class ApicurioSchemaValidator implements SchemaValidator, Closeable {
     }
 
     private void validate(String topic, byte[] payload, ParsedSchema<JsonSchema> schema) {
+        validate(topic, payload, schema, null);
+    }
+
+    private void validate(String topic, byte[] payload, ParsedSchema<JsonSchema> schema, String hint) {
         if (schema == null || schema.getParsedSchema() == null) {
             throw new SchemaValidationException("No schema was resolved for topic " + topic);
         }
@@ -253,8 +286,9 @@ public class ApicurioSchemaValidator implements SchemaValidator, Closeable {
             throw new SchemaValidationException("Unable to read the payload of topic " + topic + " as JSON", e);
         }
         if (failures != null && !failures.isEmpty()) {
-            throw new SchemaValidationException(String.format(
-                    "Error validating data of topic %s against json schema: %s", topic, describe(failures)));
+            String message = String.format("Error validating data of topic %s against json schema: %s",
+                    topic, describe(failures));
+            throw new SchemaValidationException(hint == null ? message : message + ". " + hint);
         }
     }
 

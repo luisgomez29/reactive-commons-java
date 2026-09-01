@@ -201,9 +201,7 @@ public abstract class GenericMessageListener {
     protected void logError(Throwable err, ReceiverRecord<String, byte[]> msj, FallbackStrategy strategy) {
         String messageID = msj.key();
         try {
-            log.log(Level.SEVERE,
-                    format("Error encounter while processing message %s: %s", messageID, err.toString()), err
-            );
+            log.log(Level.SEVERE, format("Error encounter while processing message %s", messageID), err);
             log.warning(format("Message %s Headers: %s", messageID, msj.headers().toString()));
             log.warning(format("Message %s Body: %s", messageID, new String(msj.value())));
         } catch (Exception e) {

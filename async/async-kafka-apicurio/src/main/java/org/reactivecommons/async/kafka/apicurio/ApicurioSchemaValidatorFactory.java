@@ -19,13 +19,17 @@ import java.util.Map;
 /**
  * Builds an {@link ApicurioSchemaValidator} from the very same configuration keys used by the
  * Apicurio Kafka serdes ({@link SerdeConfig}), so an existing configuration can be reused as is.
+ * <p>
+ * {@code apicurio.registry.find-latest} keeps its meaning: with no explicit version, the latest version of the
+ * artifact is resolved. Disabling it without setting a version is rejected here, one step earlier than in Apicurio,
+ * where the same combination ends up resolving the latest version anyway.
  */
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
 public final class ApicurioSchemaValidatorFactory {
 
     /**
      * Lifetime of a cached schema. A registered version is immutable, so the only thing this period delays is
-     * noticing that {@code find-latest} points somewhere else.
+     * noticing that the latest version of an artifact has changed.
      */
     static final long CHECK_PERIOD_MS_DEFAULT = Duration.ofMinutes(30).toMillis();
 
@@ -39,15 +43,8 @@ public final class ApicurioSchemaValidatorFactory {
 
     public static ApicurioSchemaValidator create(Map<String, Object> configs, ObjectMapper objectMapper,
                                                  Boolean validateOutbound, Boolean validateInbound) {
-        return create(configs, objectMapper, validateOutbound, validateInbound, null);
-    }
-
-    public static ApicurioSchemaValidator create(Map<String, Object> configs, ObjectMapper objectMapper,
-                                                 Boolean validateOutbound, Boolean validateInbound,
-                                                 Boolean trustInboundCoordinates) {
         Map<String, Object> resolved = prepare(configs);
-        return build(newResolver(resolved), true, resolved, objectMapper,
-                validateOutbound, validateInbound, trustInboundCoordinates);
+        return build(newResolver(resolved), true, resolved, objectMapper, validateOutbound, validateInbound);
     }
 
     /**
@@ -64,10 +61,8 @@ public final class ApicurioSchemaValidatorFactory {
      */
     public static ApicurioSchemaValidator create(SchemaResolver<JsonSchema, Object> schemaResolver,
                                                  Map<String, Object> configs, ObjectMapper objectMapper,
-                                                 Boolean validateOutbound, Boolean validateInbound,
-                                                 Boolean trustInboundCoordinates) {
-        return build(schemaResolver, false, prepare(configs), objectMapper,
-                validateOutbound, validateInbound, trustInboundCoordinates);
+                                                 Boolean validateOutbound, Boolean validateInbound) {
+        return build(schemaResolver, false, prepare(configs), objectMapper, validateOutbound, validateInbound);
     }
 
     /**
@@ -98,7 +93,11 @@ public final class ApicurioSchemaValidatorFactory {
     private static ApicurioSchemaValidator build(SchemaResolver<JsonSchema, Object> schemaResolver,
                                                  boolean ownsResolver, Map<String, Object> resolved,
                                                  ObjectMapper objectMapper, Boolean validateOutbound,
-                                                 Boolean validateInbound, Boolean trustInboundCoordinates) {
+                                                 Boolean validateInbound) {
+        // Checked here and not while preparing the resolver: the artifact coordinates belong to the validator, a
+        // shared resolver is built without them
+        assertVersionIsResolvable(resolved);
+
         HeadersHandler headersHandler = new DefaultHeadersHandler();
         headersHandler.configure(resolved, false);
 
@@ -121,8 +120,30 @@ public final class ApicurioSchemaValidatorFactory {
                 .objectMapper(objectMapper)
                 .validateOutbound(validateOutbound)
                 .validateInbound(validateInbound)
-                .trustInboundCoordinates(trustInboundCoordinates)
                 .build();
+    }
+
+    /**
+     * Rejects a configuration that leaves the schema version to chance.
+     * <p>
+     * {@code apicurio.registry.find-latest} keeps its Apicurio default, {@code false}, so the version has to be
+     * decided explicitly. Apicurio would accept the combination but not honour it: with a JSON Schema its resolver
+     * cannot derive the schema from the record, so it falls through to resolving the artifact by coordinates and,
+     * with no version, obtains the latest one anyway.
+     */
+    private static void assertVersionIsResolvable(Map<String, Object> resolved) {
+        boolean findLatest = booleanValue(resolved, SchemaResolverConfig.FIND_LATEST_ARTIFACT,
+                SchemaResolverConfig.FIND_LATEST_ARTIFACT_DEFAULT);
+        if (!findLatest && !isSet(stringValue(resolved, SchemaResolverConfig.EXPLICIT_ARTIFACT_VERSION))) {
+            throw new IllegalArgumentException("No schema version could be resolved: "
+                    + SchemaResolverConfig.EXPLICIT_ARTIFACT_VERSION + " is not set and "
+                    + SchemaResolverConfig.FIND_LATEST_ARTIFACT + " is false, which is its default. Set the version, "
+                    + "or set " + SchemaResolverConfig.FIND_LATEST_ARTIFACT + "=true to resolve the latest one.");
+        }
+    }
+
+    private static boolean isSet(String value) {
+        return value != null && !value.isBlank();
     }
 
     /**
@@ -134,7 +155,7 @@ public final class ApicurioSchemaValidatorFactory {
      * <ul>
      *     <li>{@code check-period-ms} defaults to 30 seconds, which brings that blocking call back into the hot
      *     path twice a minute per artifact. A registered version is immutable, so a much longer period is used
-     *     and only the resolution of {@code find-latest} is delayed by it.</li>
+     *     and only noticing a new latest version is delayed by it.</li>
      *     <li>{@code fault-tolerant-refresh} defaults to false, so a registry that blinks while an entry is being
      *     refreshed fails the message, even though a perfectly usable schema was already cached.</li>
      * </ul>

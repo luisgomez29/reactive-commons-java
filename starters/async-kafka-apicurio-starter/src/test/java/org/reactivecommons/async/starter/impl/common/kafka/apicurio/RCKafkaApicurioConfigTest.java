@@ -51,7 +51,12 @@ class RCKafkaApicurioConfigTest {
     private final ApplicationContextRunner runner = new ApplicationContextRunner()
             .withUserConfiguration(DomainPropertiesConfig.class)
             .withConfiguration(AutoConfigurations.of(RCKafkaApicurioConfig.class))
-            .withPropertyValues("reactive.commons.kafka.app.apicurio.url=http://localhost:8080/apis/registry/v3");
+            // find-latest defaults to false as in Apicurio, so every domain has to decide how the version is
+            // resolved. Opting into the latest one is the shortest way to a usable configuration.
+            .withPropertyValues(
+                    "reactive.commons.kafka.app.apicurio.properties."
+                            + "apicurio\\.registry\\.url=http://localhost:8080/apis/registry/v3",
+                    "reactive.commons.kafka.app.apicurio.properties.apicurio\\.registry\\.find-latest=true");
 
     @Test
     void shouldRegisterApicurioValidator() {
@@ -77,8 +82,9 @@ class RCKafkaApicurioConfigTest {
     @Test
     void shouldGiveEachDomainItsOwnValidator() {
         runner.withPropertyValues(
-                        "reactive.commons.kafka.accounts.apicurio.url=http://accounts/apis/registry/v3",
-                        "reactive.commons.kafka.accounts.apicurio.group-id=accounts")
+                        "reactive.commons.kafka.accounts.apicurio.properties.apicurio\\.registry\\.url=http://accounts/apis/registry/v3",
+                        "reactive.commons.kafka.accounts.apicurio.properties.apicurio\\.registry\\.find-latest=true",
+                        "reactive.commons.kafka.accounts.apicurio.properties.apicurio\\.registry\\.artifact\\.group-id=accounts")
                 .run(context -> {
                     DomainSchemaValidatorProvider provider = context.getBean(DomainSchemaValidatorProvider.class);
                     assertThat(provider.forDomain("accounts"))
@@ -96,7 +102,8 @@ class RCKafkaApicurioConfigTest {
     @Test
     void shouldLetASingleDomainDisableItsValidation() {
         runner.withPropertyValues(
-                        "reactive.commons.kafka.accounts.apicurio.url=http://accounts/apis/registry/v3",
+                        "reactive.commons.kafka.accounts.apicurio.properties.apicurio\\.registry\\.url=http://accounts/apis/registry/v3",
+                        "reactive.commons.kafka.accounts.apicurio.properties.apicurio\\.registry\\.find-latest=true",
                         "reactive.commons.kafka.accounts.apicurio.enabled=false")
                 .run(context -> {
                     DomainSchemaValidatorProvider provider = context.getBean(DomainSchemaValidatorProvider.class);
@@ -166,23 +173,6 @@ class RCKafkaApicurioConfigTest {
     }
 
     @Test
-    void shouldNotTrustTheCoordinatesOfIncomingRecordsByDefault() {
-        runner.run(context -> assertThat(context.getBean(AsyncKafkaPropsDomain.class).getProps("app").getApicurio()
-                .isTrustInboundCoordinates()).isFalse());
-    }
-
-    @Test
-    void shouldLetADomainTrustTheCoordinatesOfIncomingRecords() {
-        runner.withPropertyValues("reactive.commons.kafka.app.apicurio.trust-inbound-coordinates=true")
-                .run(context -> {
-                    assertThat(context.getBean(AsyncKafkaPropsDomain.class).getProps("app").getApicurio()
-                            .isTrustInboundCoordinates()).isTrue();
-                    assertThat(context.getBean(DomainSchemaValidatorProvider.class).forDomain("app"))
-                            .isInstanceOf(ApicurioSchemaValidator.class);
-                });
-    }
-
-    @Test
     void shouldReleaseTheRegistryClientsWhenTheContextIsClosed() {
         runner.run(context -> {
             DomainSchemaValidatorProvider provider = context.getBean(DomainSchemaValidatorProvider.class);
@@ -225,11 +215,12 @@ class RCKafkaApicurioConfigTest {
     void shouldShareOneRegistryClientEvenWhenTheDomainsUseDifferentBrokers() {
         runner.withPropertyValues(
                         "reactive.commons.kafka.app.connection-properties.bootstrap-servers=broker-a:9092",
-                        "reactive.commons.kafka.app.apicurio.url=http://registry:8080/apis/registry/v3",
-                        "reactive.commons.kafka.app.apicurio.group-id=app",
+                        "reactive.commons.kafka.app.apicurio.properties.apicurio\\.registry\\.url=http://registry:8080/apis/registry/v3",
+                        "reactive.commons.kafka.app.apicurio.properties.apicurio\\.registry\\.artifact\\.group-id=app",
                         "reactive.commons.kafka.accounts.connection-properties.bootstrap-servers=broker-b:9092",
-                        "reactive.commons.kafka.accounts.apicurio.url=http://registry:8080/apis/registry/v3",
-                        "reactive.commons.kafka.accounts.apicurio.group-id=ap")
+                        "reactive.commons.kafka.accounts.apicurio.properties.apicurio\\.registry\\.url=http://registry:8080/apis/registry/v3",
+                        "reactive.commons.kafka.accounts.apicurio.properties.apicurio\\.registry\\.find-latest=true",
+                        "reactive.commons.kafka.accounts.apicurio.properties.apicurio\\.registry\\.artifact\\.group-id=ap")
                 .run(context -> {
                     AsyncKafkaPropsDomain domains = context.getBean(AsyncKafkaPropsDomain.class);
                     assertThat(domains.getProps("app").getConnectionProperties().getBootstrapServers())
@@ -275,22 +266,24 @@ class RCKafkaApicurioConfigTest {
 
     private ApicurioValidationProperties registryProperties(String url, String groupId) {
         ApicurioValidationProperties properties = new ApicurioValidationProperties();
-        properties.setUrl(url);
-        properties.setGroupId(groupId);
-        properties.setProperties(new HashMap<>());
+        Map<String, String> configured = new HashMap<>();
+        configured.put("apicurio.registry.url", url);
+        configured.put("apicurio.registry.artifact.group-id", groupId);
+        configured.put("apicurio.registry.find-latest", "true");
+        properties.setProperties(configured);
         return properties;
     }
 
     @Test
     void shouldIsolateTheRegistryConfigurationOfEachDomain() {
         runner.withPropertyValues(
-                        "reactive.commons.kafka.app.apicurio.group-id=app-group",
+                        "reactive.commons.kafka.app.apicurio.properties.apicurio\\.registry\\.artifact\\.group-id=app-group",
                         "reactive.commons.kafka.app.apicurio.properties."
                                 + "apicurio\\.registry\\.auth\\.client\\.id=app-client",
-                        "reactive.commons.kafka.accounts.apicurio.url=http://accounts/apis/registry/v3",
-                        "reactive.commons.kafka.accounts.apicurio.group-id=accounts-group",
+                        "reactive.commons.kafka.accounts.apicurio.properties.apicurio\\.registry\\.url=http://accounts/apis/registry/v3",
+                        "reactive.commons.kafka.accounts.apicurio.properties.apicurio\\.registry\\.find-latest=true",
+                        "reactive.commons.kafka.accounts.apicurio.properties.apicurio\\.registry\\.artifact\\.group-id=accounts-group",
                         "reactive.commons.kafka.accounts.apicurio.validate-outbound=false",
-                        "reactive.commons.kafka.accounts.apicurio.trust-inbound-coordinates=true",
                         "reactive.commons.kafka.accounts.apicurio.properties."
                                 + "apicurio\\.registry\\.auth\\.client\\.id=accounts-client")
                 .run(context -> {
@@ -298,18 +291,17 @@ class RCKafkaApicurioConfigTest {
                     ApicurioValidationProperties app = domains.getProps("app").getApicurio();
                     ApicurioValidationProperties accounts = domains.getProps("accounts").getApicurio();
 
-                    assertThat(app.getUrl()).isEqualTo("http://localhost:8080/apis/registry/v3");
-                    assertThat(app.getGroupId()).isEqualTo("app-group");
+                    assertThat(app.getProperties())
+                            .containsEntry("apicurio.registry.url", "http://localhost:8080/apis/registry/v3")
+                            .containsEntry("apicurio.registry.artifact.group-id", "app-group")
+                            .containsEntry("apicurio.registry.auth.client.id", "app-client");
                     assertThat(app.isValidateOutbound()).isTrue();
-                    assertThat(app.isTrustInboundCoordinates()).isFalse();
-                    assertThat(app.getProperties()).containsEntry("apicurio.registry.auth.client.id", "app-client");
 
-                    assertThat(accounts.getUrl()).isEqualTo("http://accounts/apis/registry/v3");
-                    assertThat(accounts.getGroupId()).isEqualTo("accounts-group");
-                    assertThat(accounts.isValidateOutbound()).isFalse();
-                    assertThat(accounts.isTrustInboundCoordinates()).isTrue();
                     assertThat(accounts.getProperties())
+                            .containsEntry("apicurio.registry.url", "http://accounts/apis/registry/v3")
+                            .containsEntry("apicurio.registry.artifact.group-id", "accounts-group")
                             .containsEntry("apicurio.registry.auth.client.id", "accounts-client");
+                    assertThat(accounts.isValidateOutbound()).isFalse();
 
                     DomainSchemaValidatorProvider provider = context.getBean(DomainSchemaValidatorProvider.class);
                     assertThat(provider.forDomain("app"))
@@ -322,15 +314,18 @@ class RCKafkaApicurioConfigTest {
     void shouldSupportTwoBrokersSharingASingleRegistry() {
         runner.withPropertyValues(
                         "reactive.commons.kafka.app.connection-properties.bootstrap-servers=broker-a:9092",
-                        "reactive.commons.kafka.app.apicurio.group-id=app-group",
+                        "reactive.commons.kafka.app.apicurio.properties.apicurio\\.registry\\.artifact\\.group-id=app-group",
                         "reactive.commons.kafka.accounts.connection-properties.bootstrap-servers=broker-b:9092",
                         // The very same registry as the default domain
-                        "reactive.commons.kafka.accounts.apicurio.url=http://localhost:8080/apis/registry/v3",
-                        "reactive.commons.kafka.accounts.apicurio.group-id=accounts-group")
+                        "reactive.commons.kafka.accounts.apicurio.properties.apicurio\\.registry\\.url=http://localhost:8080/apis/registry/v3",
+                        "reactive.commons.kafka.accounts.apicurio.properties.apicurio\\.registry\\.find-latest=true",
+                        "reactive.commons.kafka.accounts.apicurio.properties.apicurio\\.registry\\.artifact\\.group-id=accounts-group")
                 .run(context -> {
                     AsyncKafkaPropsDomain domains = context.getBean(AsyncKafkaPropsDomain.class);
-                    assertThat(domains.getProps("app").getApicurio().getUrl())
-                            .isEqualTo(domains.getProps("accounts").getApicurio().getUrl());
+                    assertThat(domains.getProps("app").getApicurio().getProperties())
+                            .containsEntry("apicurio.registry.url", "http://localhost:8080/apis/registry/v3");
+                    assertThat(domains.getProps("accounts").getApicurio().getProperties())
+                            .containsEntry("apicurio.registry.url", "http://localhost:8080/apis/registry/v3");
 
                     DomainSchemaValidatorProvider provider = context.getBean(DomainSchemaValidatorProvider.class);
                     // Each domain still gets its own validator, so it keeps its own group and credentials even
@@ -356,25 +351,77 @@ class RCKafkaApicurioConfigTest {
     }
 
     @Test
+    void shouldFailWhenTheVersionResolutionIsNotDecided() {
+        // No find-latest and no version: the Apicurio default of find-latest is false, so nothing resolves
+        new ApplicationContextRunner()
+                .withUserConfiguration(DomainPropertiesConfig.class)
+                .withConfiguration(AutoConfigurations.of(RCKafkaApicurioConfig.class))
+                .withPropertyValues("reactive.commons.kafka.app.apicurio.properties."
+                        + "apicurio\\.registry\\.url=http://localhost:8080/apis/registry/v3")
+                .run(context -> assertThat(context).hasFailed()
+                        .getFailure()
+                        .rootCause()
+                        .isInstanceOf(InvalidConfigurationException.class)
+                        .hasMessageContaining("No schema version could be resolved for domain app")
+                        .hasMessageContaining("which is its default in Apicurio"));
+    }
+
+    @Test
+    void shouldFailWhenNoSchemaVersionCanBeResolved() {
+        runner.withPropertyValues(
+                        "reactive.commons.kafka.app.apicurio.properties.apicurio\\.registry\\.find-latest=false")
+                .run(context -> assertThat(context).hasFailed()
+                        .getFailure()
+                        .rootCause()
+                        .isInstanceOf(InvalidConfigurationException.class)
+                        .hasMessageContaining("reactive.commons.kafka.app.apicurio.properties."
+                                + "apicurio.registry.find-latest is false")
+                        .hasMessageContaining("apicurio.registry.artifact.version is empty")
+                        .hasMessageContaining("apicurio.registry.find-latest=true"));
+    }
+
+    @Test
+    void shouldFailWhenNoSchemaVersionCanBeResolvedOnAConsumerOnlyDomain() {
+        // The direction does not matter: without a version there is no schema to validate against
+        runner.withPropertyValues(
+                        "reactive.commons.kafka.app.apicurio.properties.apicurio\\.registry\\.find-latest=false",
+                        "reactive.commons.kafka.app.apicurio.validate-outbound=false")
+                .run(context -> assertThat(context).hasFailed()
+                        .getFailure()
+                        .rootCause()
+                        .isInstanceOf(InvalidConfigurationException.class)
+                        .hasMessageContaining("No schema version could be resolved"));
+    }
+
+    @Test
+    void shouldAllowDisablingTheLatestFallbackWhenTheVersionIsPinned() {
+        runner.withPropertyValues(
+                        "reactive.commons.kafka.app.apicurio.properties.apicurio\\.registry\\.find-latest=false",
+                        "reactive.commons.kafka.app.apicurio.properties.apicurio\\.registry\\.artifact\\.version=1")
+                .run(context -> assertThat(context.getBean(DomainSchemaValidatorProvider.class).forDomain("app"))
+                        .isInstanceOf(ApicurioSchemaValidator.class));
+    }
+
+    @Test
     void shouldBindAllProperties() {
         runner.withPropertyValues(
-                        "reactive.commons.kafka.app.apicurio.group-id=kafka",
-                        "reactive.commons.kafka.app.apicurio.artifact-id=person",
-                        "reactive.commons.kafka.app.apicurio.version=1",
-                        "reactive.commons.kafka.app.apicurio.find-latest=false",
+                        "reactive.commons.kafka.app.apicurio.properties.apicurio\\.registry\\.artifact\\.group-id=kafka",
+                        "reactive.commons.kafka.app.apicurio.properties.apicurio\\.registry\\.artifact\\.artifact-id=person",
+                        "reactive.commons.kafka.app.apicurio.properties.apicurio\\.registry\\.artifact\\.version=1",
+                        "reactive.commons.kafka.app.apicurio.properties.apicurio\\.registry\\.find-latest=false",
                         "reactive.commons.kafka.app.apicurio.validate-outbound=false",
                         "reactive.commons.kafka.app.apicurio.properties."
                                 + "apicurio\\.registry\\.auth\\.client\\.id=id")
                 .run(context -> {
                     var properties = context.getBean(AsyncKafkaPropsDomain.class).getProps("app").getApicurio();
-                    assertThat(properties.getGroupId()).isEqualTo("kafka");
-                    assertThat(properties.getArtifactId()).isEqualTo("person");
-                    assertThat(properties.getVersion()).isEqualTo("1");
-                    assertThat(properties.isFindLatest()).isFalse();
+                    assertThat(properties.getProperties())
+                            .containsEntry("apicurio.registry.artifact.group-id", "kafka")
+                            .containsEntry("apicurio.registry.artifact.artifact-id", "person")
+                            .containsEntry("apicurio.registry.artifact.version", "1")
+                            .containsEntry("apicurio.registry.find-latest", "false")
+                            .containsEntry("apicurio.registry.auth.client.id", "id");
                     assertThat(properties.isValidateOutbound()).isFalse();
                     assertThat(properties.isValidateInbound()).isTrue();
-                    assertThat(properties.getProperties())
-                            .containsEntry("apicurio.registry.auth.client.id", "id");
                     assertThat(context).hasSingleBean(DomainSchemaValidatorProvider.class);
                 });
     }

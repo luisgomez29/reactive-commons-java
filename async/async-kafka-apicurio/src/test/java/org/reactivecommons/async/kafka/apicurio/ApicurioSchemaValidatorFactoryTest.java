@@ -26,9 +26,14 @@ class ApicurioSchemaValidatorFactoryTest {
 
     private static final byte[] PAYLOAD = "{}".getBytes(StandardCharsets.UTF_8);
 
+    /**
+     * A usable configuration: the endpoint plus an explicit version resolution, which is mandatory because
+     * {@code find-latest} defaults to false as in Apicurio.
+     */
     private Map<String, Object> baseConfig() {
         Map<String, Object> configs = new HashMap<>();
         configs.put(SchemaResolverConfig.REGISTRY_URL, "http://localhost:8080/apis/registry/v2");
+        configs.put(SchemaResolverConfig.FIND_LATEST_ARTIFACT, true);
         return configs;
     }
 
@@ -118,6 +123,38 @@ class ApicurioSchemaValidatorFactoryTest {
     }
 
     @Test
+    void shouldRejectDisablingTheLatestFallbackWithoutAVersion() {
+        Map<String, Object> configs = baseConfig();
+        configs.put(SchemaResolverConfig.FIND_LATEST_ARTIFACT, false);
+
+        assertThatThrownBy(() -> ApicurioSchemaValidatorFactory.create(configs))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("No schema version could be resolved")
+                .hasMessageContaining("apicurio.registry.find-latest is false");
+    }
+
+    @Test
+    void shouldRejectAConfigurationThatOnlyNamesTheRegistry() {
+        // find-latest defaults to false as in Apicurio, so the version resolution has to be explicit
+        Map<String, Object> onlyUrl = new HashMap<>();
+        onlyUrl.put(SchemaResolverConfig.REGISTRY_URL, "http://localhost:8080/apis/registry/v2");
+
+        assertThatThrownBy(() -> ApicurioSchemaValidatorFactory.create(onlyUrl))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("No schema version could be resolved")
+                .hasMessageContaining("which is its default");
+    }
+
+    @Test
+    void shouldAllowDisablingTheLatestFallbackWhenTheVersionIsSet() {
+        Map<String, Object> configs = baseConfig();
+        configs.put(SchemaResolverConfig.FIND_LATEST_ARTIFACT, false);
+        configs.put(SchemaResolverConfig.EXPLICIT_ARTIFACT_VERSION, "1");
+
+        assertThat(ApicurioSchemaValidatorFactory.create(configs)).isNotNull();
+    }
+
+    @Test
     void shouldBuildAResolverThatCanBeSharedBySeveralValidators() {
         SchemaResolver<JsonSchema, Object> shared = mock(SchemaResolver.class);
 
@@ -126,10 +163,8 @@ class ApicurioSchemaValidatorFactoryTest {
         Map<String, Object> accounts = baseConfig();
         accounts.put(SchemaResolverConfig.EXPLICIT_ARTIFACT_GROUP_ID, "accounts-group");
 
-        ApicurioSchemaValidator first = ApicurioSchemaValidatorFactory
-                .create(shared, app, null, true, true, false);
-        ApicurioSchemaValidator second = ApicurioSchemaValidatorFactory
-                .create(shared, accounts, null, true, true, false);
+        var first = ApicurioSchemaValidatorFactory.create(shared, app, null, true, true);
+        var second = ApicurioSchemaValidatorFactory.create(shared, accounts, null, true, true);
 
         // Nothing is resolved because the shared resolver is a stub, the point is which coordinates it is asked
         Headers headers = new RecordHeaders();
@@ -146,8 +181,7 @@ class ApicurioSchemaValidatorFactoryTest {
     @Test
     void shouldNotLetASharedResolverBeClosedByItsValidators() throws Exception {
         SchemaResolver<JsonSchema, Object> shared = mock(SchemaResolver.class);
-        ApicurioSchemaValidator validator = ApicurioSchemaValidatorFactory
-                .create(shared, baseConfig(), null, true, true, false);
+        var validator = ApicurioSchemaValidatorFactory.create(shared, baseConfig(), null, true, true);
 
         validator.close();
 

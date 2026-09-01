@@ -15,7 +15,10 @@ import static org.assertj.core.api.Assertions.assertThat;
  * starter to the classpath is enough to enable schema validation.
  */
 @SpringBootTest(classes = ReactiveCommonsConfig.class,
-        properties = "reactive.commons.kafka.app.apicurio.url=http://localhost:8080/apis/registry/v3")
+        properties = {
+                "reactive.commons.kafka.app.apicurio.properties."
+                        + "apicurio\\.registry\\.url=http://localhost:8080/apis/registry/v3",
+                "reactive.commons.kafka.app.apicurio.properties.apicurio\\.registry\\.find-latest=true"})
 class ApicurioComponentScanTest {
 
     @Autowired

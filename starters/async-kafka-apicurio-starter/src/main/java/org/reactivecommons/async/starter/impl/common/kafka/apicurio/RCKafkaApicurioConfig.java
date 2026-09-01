@@ -17,6 +17,7 @@ import org.springframework.context.annotation.Configuration;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Registers the {@link DomainSchemaValidatorProvider} that supplies the Apicurio {@link SchemaValidator} of each
@@ -34,7 +35,7 @@ public class RCKafkaApicurioConfig {
     @Bean
     @ConditionalOnMissingBean({SchemaValidator.class, DomainSchemaValidatorProvider.class})
     public DomainSchemaValidatorProvider apicurioSchemaValidatorProvider(AsyncKafkaPropsDomain propsDomain) {
-        SharedSchemaResolvers resolvers = new SharedSchemaResolvers();
+        var resolvers = new SharedSchemaResolvers();
         return new ApicurioValidatorProvider(buildValidators(propsDomain, resolvers), resolvers);
     }
 
@@ -89,21 +90,30 @@ public class RCKafkaApicurioConfig {
                                                   SharedSchemaResolvers resolvers) {
         assertValidationIsUseful(properties, domain);
         assertHeadersAreEnabled(properties, domain);
+        assertVersionIsResolvable(properties, domain);
 
-        // Everything the registry client and the schema cache depend on: endpoint, credentials, TLS and tuning
-        Map<String, Object> registryConfig = new HashMap<>(properties.getProperties());
-        putIfPresent(registryConfig, SchemaResolverConfig.REGISTRY_URL, properties.getUrl());
+        Map<String, Object> configs = new HashMap<>(properties.getProperties());
+        return ApicurioSchemaValidatorFactory.create(resolvers.forRegistry(registryConfig(configs)), configs, null,
+                properties.isValidateOutbound(), properties.isValidateInbound());
+    }
 
-        // The artifact coordinates are resolved per record, so they belong to this domain only
-        Map<String, Object> configs = new HashMap<>(registryConfig);
-        putIfPresent(configs, SchemaResolverConfig.EXPLICIT_ARTIFACT_GROUP_ID, properties.getGroupId());
-        putIfPresent(configs, SchemaResolverConfig.EXPLICIT_ARTIFACT_ID, properties.getArtifactId());
-        putIfPresent(configs, SchemaResolverConfig.EXPLICIT_ARTIFACT_VERSION, properties.getVersion());
-        configs.putIfAbsent(SchemaResolverConfig.FIND_LATEST_ARTIFACT, properties.isFindLatest());
+    /**
+     * Keys that select which artifact of the registry is validated, as opposed to which registry is contacted.
+     * They are resolved per record, so two domains differing only in these still share one connection and cache.
+     */
+    private static final Set<String> ARTIFACT_KEYS = Set.of(
+            SchemaResolverConfig.EXPLICIT_ARTIFACT_GROUP_ID,
+            SchemaResolverConfig.EXPLICIT_ARTIFACT_ID,
+            SchemaResolverConfig.EXPLICIT_ARTIFACT_VERSION,
+            SchemaResolverConfig.FIND_LATEST_ARTIFACT);
 
-        return ApicurioSchemaValidatorFactory.create(resolvers.forRegistry(registryConfig), configs, null,
-                properties.isValidateOutbound(), properties.isValidateInbound(),
-                properties.isTrustInboundCoordinates());
+    /**
+     * @return everything the registry client and the schema cache depend on: endpoint, credentials, TLS and tuning
+     */
+    private static Map<String, Object> registryConfig(Map<String, Object> configs) {
+        Map<String, Object> registryConfig = new HashMap<>(configs);
+        registryConfig.keySet().removeAll(ARTIFACT_KEYS);
+        return registryConfig;
     }
 
     private static void assertValidationIsUseful(ApicurioValidationProperties properties, String domain) {
@@ -134,9 +144,27 @@ public class RCKafkaApicurioConfig {
         }
     }
 
-    private static void putIfPresent(Map<String, Object> configs, String key, String value) {
-        if (value != null && !value.isBlank()) {
-            configs.put(key, value);
+    /**
+     * Rejects a domain that leaves the schema version to chance.
+     * <p>
+     * {@code find-latest} keeps the Apicurio default, {@code false}, so the version has to be decided explicitly:
+     * either by pinning {@code apicurio.registry.artifact.version} or by opting into the latest one. Apicurio would
+     * accept the combination but not honour it: with a JSON Schema its resolver cannot derive the schema from the
+     * record, so it falls through to resolving the artifact by coordinates and, with no version, obtains the latest
+     * one anyway. Failing is better than silently doing what the flag says it does not.
+     */
+    private static void assertVersionIsResolvable(ApicurioValidationProperties properties, String domain) {
+        String prefix = "reactive.commons.kafka." + domain + ".apicurio.properties.";
+        Map<String, String> configured = properties.getProperties();
+        boolean findLatest = Boolean.parseBoolean(configured.get(SchemaResolverConfig.FIND_LATEST_ARTIFACT));
+        String version = configured.get(SchemaResolverConfig.EXPLICIT_ARTIFACT_VERSION);
+        if (!findLatest && (version == null || version.isBlank())) {
+            throw new InvalidConfigurationException("No schema version could be resolved for domain " + domain
+                    + ": " + prefix + SchemaResolverConfig.EXPLICIT_ARTIFACT_VERSION + " is empty and " + prefix
+                    + SchemaResolverConfig.FIND_LATEST_ARTIFACT + " is false, which is its default in Apicurio. Set "
+                    + prefix + SchemaResolverConfig.EXPLICIT_ARTIFACT_VERSION + " to pin the topic to a single "
+                    + "version, or set " + prefix + SchemaResolverConfig.FIND_LATEST_ARTIFACT + "=true to validate "
+                    + "against the latest one.");
         }
     }
 }

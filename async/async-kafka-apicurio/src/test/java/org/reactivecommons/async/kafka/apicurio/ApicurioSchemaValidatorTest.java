@@ -27,6 +27,7 @@ import java.util.StringJoiner;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.never;
@@ -217,27 +218,6 @@ class ApicurioSchemaValidatorTest {
     }
 
     @Test
-    void shouldHonourTheHeadersWhenTheProducersAreTrusted() {
-        ApicurioSchemaValidator trusting = ApicurioSchemaValidator.builder()
-                .schemaResolver(schemaResolver)
-                .headersHandler(headersHandler)
-                .artifactReferenceProvider(new DefaultArtifactReferenceProvider("default", null, null))
-                .trustInboundCoordinates(true)
-                .build();
-        givenSchemaIsResolved();
-        Headers headers = new RecordHeaders();
-        headersHandler.writeHeaders(headers, ArtifactReference.builder()
-                .groupId("another-group")
-                .artifactId("another-artifact")
-                .version("1")
-                .build());
-
-        trusting.validateInbound("person.topic", VALID, headers);
-
-        verify(schemaResolver).resolveSchemaByArtifactReference(argThatArtifactIs("another-artifact"));
-    }
-
-    @Test
     void shouldFallBackToTheConfiguredArtifactWhenTheHeadersAreMalformed() {
         givenSchemaIsResolved();
         Headers headers = new RecordHeaders();
@@ -332,6 +312,16 @@ class ApicurioSchemaValidatorTest {
                 reference != null && artifactId.equals(reference.getArtifactId()));
     }
 
+    private static int countOccurrences(String text, String fragment) {
+        int count = 0;
+        int index = text.indexOf(fragment);
+        while (index >= 0) {
+            count++;
+            index = text.indexOf(fragment, index + fragment.length());
+        }
+        return count;
+    }
+
     @Test
     void shouldRejectAValidatorThatValidatesNeitherDirection() {
         ApicurioSchemaValidator.ApicurioSchemaValidatorBuilder builder = ApicurioSchemaValidator.builder()
@@ -374,6 +364,78 @@ class ApicurioSchemaValidatorTest {
     }
 
     @Test
+    void shouldNotLetARecordOverrideTheConfiguredVersion() {
+        // The topic pins version 1, the record says it was published with version 2
+        ApicurioSchemaValidator pinned = ApicurioSchemaValidator.builder()
+                .schemaResolver(schemaResolver)
+                .headersHandler(headersHandler)
+                .artifactReferenceProvider(new DefaultArtifactReferenceProvider("kafka", "person", "1"))
+                .build();
+        givenSchemaIsResolved();
+        Headers headers = new RecordHeaders();
+        headersHandler.writeHeaders(headers, ArtifactReference.builder()
+                .groupId("kafka")
+                .artifactId("person")
+                .version("2")
+                .build());
+
+        pinned.validateInbound("person.topic", VALID, headers);
+
+        verify(schemaResolver).resolveSchemaByArtifactReference(argThat(reference ->
+                "person".equals(reference.getArtifactId()) && "1".equals(reference.getVersion())));
+    }
+
+    @Test
+    void shouldExplainThatTheVersionIsPinnedWhenARecordIsRejected() {
+        ApicurioSchemaValidator pinned = ApicurioSchemaValidator.builder()
+                .schemaResolver(schemaResolver)
+                .headersHandler(headersHandler)
+                .artifactReferenceProvider(new DefaultArtifactReferenceProvider("kafka", "person", "1"))
+                .build();
+        givenSchemaIsResolved();
+        Headers headers = new RecordHeaders();
+        headersHandler.writeHeaders(headers, ArtifactReference.builder()
+                .groupId("kafka")
+                .artifactId("person")
+                .version("2")
+                .build());
+
+        assertThatThrownBy(() -> pinned.validateInbound("person.topic", INVALID, headers))
+                .isInstanceOf(SchemaValidationException.class)
+                .hasMessageContaining("pinned by configuration")
+                // A wrapping exception would repeat the whole failure again under "Caused by"
+                .hasNoCause();
+    }
+
+    @Test
+    void shouldNotRepeatTheFailureInTheCauseChain() {
+        givenSchemaIsResolved();
+        Headers headers = new RecordHeaders();
+        headers.add("apicurio.value.contentId", ByteBuffer.allocate(8).putLong(7L).array());
+
+        Throwable failure = catchThrowable(() -> validator.validateInbound("person.topic", INVALID, headers));
+
+        assertThat(failure).isInstanceOf(SchemaValidationException.class).hasNoCause();
+        assertThat(countOccurrences(failure.getMessage(), "required property 'name' not found")).isOne();
+    }
+
+    @Test
+    void shouldNotReportAnythingWhenTheHeadersNameTheSameArtifactWithoutVersion() {
+        givenSchemaIsResolved();
+        Headers headers = new RecordHeaders();
+        headersHandler.writeHeaders(headers, ArtifactReference.builder()
+                .groupId("default")
+                .artifactId("person.topic-value")
+                .build());
+
+        // The coordinates are the ones of the topic, so claiming they were discarded would be false
+        assertThatThrownBy(() -> validator.validateInbound("person.topic", INVALID, headers))
+                .isInstanceOf(SchemaValidationException.class)
+                .hasMessageNotContaining("do not name the artifact configured for this topic")
+                .hasMessageNotContaining("The record carried the schema coordinates");
+    }
+
+    @Test
     void shouldExplainTheDiscardedCoordinatesWhenARecordIsRejected() {
         givenSchemaIsResolved();
         Headers headers = new RecordHeaders();
@@ -383,8 +445,7 @@ class ApicurioSchemaValidatorTest {
         assertThatThrownBy(() -> validator.validateInbound("person.topic", INVALID, headers))
                 .isInstanceOf(SchemaValidationException.class)
                 .hasMessageContaining("required property 'name' not found")
-                .hasMessageContaining("were therefore ignored")
-                .hasMessageContaining("trust-inbound-coordinates");
+                .hasMessageContaining("do not name the artifact configured for this topic");
     }
 
     @Test
@@ -394,7 +455,7 @@ class ApicurioSchemaValidatorTest {
 
         assertThatThrownBy(() -> validator.validateInbound("person.topic", INVALID, headers))
                 .isInstanceOf(SchemaValidationException.class)
-                .hasMessageNotContaining("trust-inbound-coordinates");
+                .hasMessageNotContaining("The record carried the schema coordinates");
     }
 
     @Test
@@ -409,7 +470,7 @@ class ApicurioSchemaValidatorTest {
 
         assertThatThrownBy(() -> validator.validateInbound("person.topic", INVALID, headers))
                 .isInstanceOf(SchemaValidationException.class)
-                .hasMessageNotContaining("trust-inbound-coordinates");
+                .hasMessageNotContaining("The record carried the schema coordinates");
     }
 
     @Test
