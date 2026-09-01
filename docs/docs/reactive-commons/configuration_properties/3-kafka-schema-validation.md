@@ -48,10 +48,10 @@ reactive:
         connection-properties:
           bootstrap-servers: "localhost:9092"
         apicurio:
-          enabled: true                     # default true, set to false to disable validation
           validate-outbound: true           # validate before publishing
           validate-inbound: true            # validate every consumed record
           properties: # every Apicurio setting, with its original key
+            apicurio.registry.serde.validation-enabled: true # default true, set to false to disable validation
             apicurio.registry.url: "http://localhost:8080/apis/registry/v3"
             apicurio.registry.artifact.group-id: "kafka"    # optional, defaults to the "default" group
             apicurio.registry.artifact.artifact-id: "person" # optional, defaults to "<topic>-value"
@@ -63,19 +63,21 @@ reactive:
             apicurio.registry.auth.service.token.endpoint: "${REGISTRY_TOKEN_ENDPOINT}"
 ```
 
-Only the switches that have no Apicurio equivalent are named by Reactive Commons: `enabled`, `validate-outbound` and
-`validate-inbound`. **Everything the registry understands keeps its original Apicurio key** inside `properties`, so an
-existing serde configuration can be pasted as is and there is never a second name for the same setting.
+Only the switches that have no Apicurio equivalent are named by Reactive Commons: `validate-outbound` and
+`validate-inbound`. **Everything the registry understands keeps its original Apicurio key** inside `properties`,
+including whether validation itself is turned on (`apicurio.registry.serde.validation-enabled`), so an existing serde
+configuration can be pasted as is and there is never a second name for the same setting.
 
-| Apicurio key                             | Meaning                                                      |
-|------------------------------------------|--------------------------------------------------------------|
-| `apicurio.registry.url`                  | Registry endpoint, **required**                              |
-| `apicurio.registry.artifact.group-id`    | Artifact group. Empty means the `default` group              |
-| `apicurio.registry.artifact.artifact-id` | Artifact. Empty means `<topic>-value`                        |
-| `apicurio.registry.artifact.version`     | Version. Empty means "the one of each record", see below     |
-| `apicurio.registry.find-latest`          | Resolve the latest version when none is set. Default `false` |
-| `apicurio.registry.auth.*`               | Credentials used to reach the registry                       |
-| `apicurio.registry.request.ssl.*`        | TLS material                                                 |
+| Apicurio key                                 | Meaning                                                       |
+|----------------------------------------------|---------------------------------------------------------------|
+| `apicurio.registry.serde.validation-enabled` | Turns schema validation on/off for the domain. Default `true` |
+| `apicurio.registry.url`                      | Registry endpoint, **required**                               |
+| `apicurio.registry.artifact.group-id`        | Artifact group. Empty means the `default` group               |
+| `apicurio.registry.artifact.artifact-id`     | Artifact. Empty means `<topic>-value`                         |
+| `apicurio.registry.artifact.version`         | Version. Empty means "the one of each record", see below      |
+| `apicurio.registry.find-latest`              | Resolve the latest version when none is set. Default `false`  |
+| `apicurio.registry.auth.*`                   | Credentials used to reach the registry                        |
+| `apicurio.registry.request.ssl.*`            | TLS material                                                  |
 
 :::info The version resolution is mandatory `apicurio.registry.find-latest` defaults to `false`, exactly as in Apicurio,
 so **every domain must state how the schema version is resolved**: either pin
@@ -139,7 +141,8 @@ This is the way to go when the registry endpoint or its credentials come from a 
 source that is not available as a configuration file. Use `customize(domain, ...)` rather than
 `put(domain, props)`, so the values already bound from the YAML are preserved.
 
-`enabled` is honoured here as well, so `props.getApicurio().setEnabled(false)` leaves that domain with the no-op
+`apicurio.registry.serde.validation-enabled` is honoured here as well, so
+`props.getApicurio().getProperties().put(SerdeConfig.VALIDATION_ENABLED, "false")` leaves that domain with the no-op
 validator. All the consistency checks described below run **after** the customizer, on the final values.
 
 :::note Declaring a bean of type `SchemaValidator` is a different, lower level extension point: it replaces the
@@ -195,12 +198,14 @@ reactive:
             apicurio.registry.artifact.group-id: accounts
 ```
 
-A domain is left unvalidated either by omitting its `apicurio` block or with `enabled: false`:
+A domain is left unvalidated either by omitting its `apicurio` block or with
+`apicurio.registry.serde.validation-enabled: false`:
 
 ```yaml
       legacy:
         apicurio:
-          enabled: false                # legacy has no schemas registered yet
+          properties:
+            apicurio.registry.serde.validation-enabled: false # legacy has no schemas registered yet
 ```
 
 All the validators are built when the application starts, so a configuration error fails fast and the message points at
@@ -253,36 +258,33 @@ Leaving it empty is the same as setting it to `default`: when no group is given,
 artifacts that were not created inside an explicit group. Set it only if you registered your schemas under a custom
 group.
 
-### `enabled` vs `validate-outbound` / `validate-inbound`
+### `apicurio.registry.serde.validation-enabled` vs `validate-outbound` / `validate-inbound`
 
 They act on different axes and none of them replaces the other:
 
-| Property                                 | Effect                                                                                                                                                                                    |
-|------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `enabled: false`                         | No Apicurio validator is built for the domain and Reactive Commons keeps its no-op validator. The registry is never contacted, so `apicurio.registry.url` and credentials are not needed. |
-| `validate-outbound` / `validate-inbound` | The validator **is** created and connected to the registry, only the given direction is skipped.                                                                                          |
+| Property                                            | Effect                                                                                                                                                                                    |
+|-----------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `apicurio.registry.serde.validation-enabled: false` | No Apicurio validator is built for the domain and Reactive Commons keeps its no-op validator. The registry is never contacted, so `apicurio.registry.url` and credentials are not needed. |
+| `validate-outbound` / `validate-inbound`            | The validator **is** created and connected to the registry, only the given direction is skipped.                                                                                          |
 
-Apicurio itself has a **single** switch, `apicurio.registry.serde.validation-enabled`
+Apicurio itself reads `apicurio.registry.serde.validation-enabled`
 ([
 `SerdeConfig.VALIDATION_ENABLED`](https://github.com/Apicurio/apicurio-registry/blob/3.3.2/serdes/generic/serde-common/src/main/java/io/apicurio/registry/serde/config/SerdeConfig.java),
-default `true`), read by both `JsonSchemaSerializer` and `JsonSchemaDeserializer`. It applies to *both* directions,
+default `true`) with both `JsonSchemaSerializer` and `JsonSchemaDeserializer`. It applies to *both* directions,
 which in Kafka is never a problem: the serializer and the deserializer are different objects living in different
 applications, so a producer only ever configures the serializer.
 
 Reactive Commons is different: **a single `SchemaValidator` instance serves the producer and the consumer of the same
-domain**, so one flag could not express the common case of *"publish freely, validate what I receive"*. That is why the
-two directions are split, and why `apicurio.registry.serde.validation-enabled` is not the way to switch the feature off:
-`enabled` is.
+domain**, so `apicurio.registry.serde.validation-enabled` alone could not express the common case of *"publish freely,
+validate what I receive"*. That is why the two directions are split into `validate-outbound` and `validate-inbound`, on
+top of the single switch that turns the whole feature on or off.
 
-:::danger Reactive Commons **fails at startup** with an `InvalidConfigurationException` for any configuration that would
-create the validator, connect to the registry and cache schemas without validating a single message:
+:::danger Reactive Commons **fails at startup** with an `InvalidConfigurationException` when `validate-outbound` and
+`validate-inbound` are both `false`: that configuration would create the validator, connect to the registry and cache
+schemas without validating a single message.
 
-- `validate-outbound` and `validate-inbound` both `false`.
-- `enabled: true` together with `apicurio.registry.serde.validation-enabled: false` in `properties`. Both are on/off
-  switches for the same feature, so they must hold the same value; keeping them apart is a contradiction, not a valid
-  combination.
-
-If the intention is to turn the feature off, use `enabled: false`, which does not create anything.
+If the intention is to turn the feature off, set `apicurio.registry.serde.validation-enabled: false` in `properties`,
+which does not create anything.
 :::
 
 :::danger Reactive Commons also **fails at startup** when `properties` sets `apicurio.registry.headers.enabled: false`.
@@ -309,8 +311,8 @@ able to read the message. Disabling the outbound direction implies giving up the
 | **Defensive consumer.** Reject malformed records coming from another team, while publishing to a topic whose schema is not registered yet.                                                   | `validate-outbound: false`                            |
 | **DLQ reprocessor.** Its input is invalid by definition; it validates only what it republishes after fixing it.                                                                              | `validate-inbound: false`                             |
 | **Producer with generated types.** The payload is built from classes generated out of the very same artifact, so validating on the way out is redundant on high volume topics.               | `validate-outbound: false`                            |
-| **Local development and tests.** There is no registry reachable from the laptop or the CI job.                                                                                               | `enabled: false`                                      |
-| **Production incident.** An incompatible version was registered or the registry is degraded, and the flow must be restored without a redeployment.                                           | `enabled: false`                                      |
+| **Local development and tests.** There is no registry reachable from the laptop or the CI job.                                                                                               | `apicurio.registry.serde.validation-enabled: false`   |
+| **Production incident.** An incompatible version was registered or the registry is degraded, and the flow must be restored without a redeployment.                                           | `apicurio.registry.serde.validation-enabled: false`   |
 | **Service that only produces or only consumes.**                                                                                                                                             | nothing to set, the unused direction is never invoked |
 
 ### Why the schema coordinates are always written

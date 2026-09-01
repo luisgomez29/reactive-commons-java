@@ -402,7 +402,9 @@ class ApicurioSchemaValidatorTest {
 
         assertThatThrownBy(() -> pinned.validateInbound("person.topic", INVALID, headers))
                 .isInstanceOf(SchemaValidationException.class)
-                .hasMessageContaining("pinned by configuration")
+                .hasMessageContaining("The record carried the schema coordinates")
+                .hasMessageContaining("artifactId=person, version=2")
+                .hasMessageContaining("artifactId=person, version=1")
                 // A wrapping exception would repeat the whole failure again under "Caused by"
                 .hasNoCause();
     }
@@ -431,7 +433,6 @@ class ApicurioSchemaValidatorTest {
         // The coordinates are the ones of the topic, so claiming they were discarded would be false
         assertThatThrownBy(() -> validator.validateInbound("person.topic", INVALID, headers))
                 .isInstanceOf(SchemaValidationException.class)
-                .hasMessageNotContaining("do not name the artifact configured for this topic")
                 .hasMessageNotContaining("The record carried the schema coordinates");
     }
 
@@ -445,7 +446,7 @@ class ApicurioSchemaValidatorTest {
         assertThatThrownBy(() -> validator.validateInbound("person.topic", INVALID, headers))
                 .isInstanceOf(SchemaValidationException.class)
                 .hasMessageContaining("required property 'name' not found")
-                .hasMessageContaining("do not name the artifact configured for this topic");
+                .hasMessageContaining("The record carried the schema coordinates");
     }
 
     @Test

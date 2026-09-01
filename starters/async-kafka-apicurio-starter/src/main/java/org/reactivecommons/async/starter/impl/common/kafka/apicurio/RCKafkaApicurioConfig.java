@@ -78,9 +78,15 @@ public class RCKafkaApicurioConfig {
         }
     }
 
+    /**
+     * Whether schema validation is turned on for a domain, decided by {@code apicurio.registry.serde
+     * .validation-enabled}, exactly as it would be for the Apicurio serdes. When it is {@code false} Reactive
+     * Commons keeps its default no-op validator instead of connecting to the registry.
+     */
     private static SchemaValidator createValidator(ApicurioValidationProperties properties, String domain,
                                                    SharedSchemaResolvers resolvers) {
-        if (properties == null || !properties.isEnabled()) {
+        if (properties == null ||
+                !"false".equalsIgnoreCase(properties.getProperties().get(SerdeConfig.VALIDATION_ENABLED))) {
             return NoOpSchemaValidator.INSTANCE;
         }
         return buildValidator(properties, domain, resolvers);
@@ -88,7 +94,7 @@ public class RCKafkaApicurioConfig {
 
     static ApicurioSchemaValidator buildValidator(ApicurioValidationProperties properties, String domain,
                                                   SharedSchemaResolvers resolvers) {
-        assertValidationIsUseful(properties, domain);
+        assertDirectionIsUseful(properties, domain);
         assertHeadersAreEnabled(properties, domain);
         assertVersionIsResolvable(properties, domain);
 
@@ -116,20 +122,13 @@ public class RCKafkaApicurioConfig {
         return registryConfig;
     }
 
-    private static void assertValidationIsUseful(ApicurioValidationProperties properties, String domain) {
-        String prefix = "reactive.commons.kafka." + domain + ".apicurio";
-        if ("false".equalsIgnoreCase(properties.getProperties().get(SerdeConfig.VALIDATION_ENABLED))) {
-            throw new InvalidConfigurationException("Conflicting configuration: " + prefix
-                    + ".enabled is true but " + SerdeConfig.VALIDATION_ENABLED + " is false. Both switches turn "
-                    + "schema validation on and off, so they must hold the same value. Remove "
-                    + SerdeConfig.VALIDATION_ENABLED + " to keep validating, or set " + prefix + ".enabled=false "
-                    + "to disable the feature without connecting to the registry.");
-        }
+    private static void assertDirectionIsUseful(ApicurioValidationProperties properties, String domain) {
         if (!properties.isValidateOutbound() && !properties.isValidateInbound()) {
+            String prefix = "reactive.commons.kafka." + domain + ".apicurio";
             throw new InvalidConfigurationException("Both " + prefix + ".validate-outbound and " + prefix
                     + ".validate-inbound are false, so Reactive Commons would connect to the Apicurio Registry and "
                     + "resolve schemas without validating any message. Enable at least one direction, or turn the "
-                    + "feature off with " + prefix + ".enabled=false.");
+                    + "feature off with " + prefix + ".properties." + SerdeConfig.VALIDATION_ENABLED + "=false.");
         }
     }
 
@@ -144,15 +143,6 @@ public class RCKafkaApicurioConfig {
         }
     }
 
-    /**
-     * Rejects a domain that leaves the schema version to chance.
-     * <p>
-     * {@code find-latest} keeps the Apicurio default, {@code false}, so the version has to be decided explicitly:
-     * either by pinning {@code apicurio.registry.artifact.version} or by opting into the latest one. Apicurio would
-     * accept the combination but not honour it: with a JSON Schema its resolver cannot derive the schema from the
-     * record, so it falls through to resolving the artifact by coordinates and, with no version, obtains the latest
-     * one anyway. Failing is better than silently doing what the flag says it does not.
-     */
     private static void assertVersionIsResolvable(ApicurioValidationProperties properties, String domain) {
         String prefix = "reactive.commons.kafka." + domain + ".apicurio.properties.";
         Map<String, String> configured = properties.getProperties();

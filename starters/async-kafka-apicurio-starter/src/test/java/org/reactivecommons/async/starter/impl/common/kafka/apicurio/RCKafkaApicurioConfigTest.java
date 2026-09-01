@@ -69,7 +69,8 @@ class RCKafkaApicurioConfigTest {
 
     @Test
     void shouldNotValidateWhenTheDomainDisablesIt() {
-        runner.withPropertyValues("reactive.commons.kafka.app.apicurio.enabled=false")
+        runner.withPropertyValues("reactive.commons.kafka.app.apicurio.properties."
+                        + "apicurio\\.registry\\.serde\\.validation-enabled=false")
                 .run(context -> assertThat(context.getBean(DomainSchemaValidatorProvider.class).forDomain("app"))
                         .isInstanceOf(NoOpSchemaValidator.class));
     }
@@ -104,7 +105,8 @@ class RCKafkaApicurioConfigTest {
         runner.withPropertyValues(
                         "reactive.commons.kafka.accounts.apicurio.properties.apicurio\\.registry\\.url=http://accounts/apis/registry/v3",
                         "reactive.commons.kafka.accounts.apicurio.properties.apicurio\\.registry\\.find-latest=true",
-                        "reactive.commons.kafka.accounts.apicurio.enabled=false")
+                        "reactive.commons.kafka.accounts.apicurio.properties."
+                                + "apicurio\\.registry\\.serde\\.validation-enabled=false")
                 .run(context -> {
                     DomainSchemaValidatorProvider provider = context.getBean(DomainSchemaValidatorProvider.class);
                     assertThat(provider.forDomain("accounts")).isInstanceOf(NoOpSchemaValidator.class);
@@ -133,20 +135,7 @@ class RCKafkaApicurioConfigTest {
                         .getFailure()
                         .rootCause()
                         .isInstanceOf(InvalidConfigurationException.class)
-                        .hasMessageContaining("enabled=false"));
-    }
-
-    @Test
-    void shouldFailWhenTheApicurioValidationSwitchContradictsEnabled() {
-        runner.withPropertyValues(
-                        "reactive.commons.kafka.app.apicurio.properties."
-                                + "apicurio\\.registry\\.serde\\.validation-enabled=false")
-                .run(context -> assertThat(context).hasFailed()
-                        .getFailure()
-                        .rootCause()
-                        .isInstanceOf(InvalidConfigurationException.class)
-                        .hasMessageContaining("Conflicting configuration")
-                        .hasMessageContaining("must hold the same value"));
+                        .hasMessageContaining("apicurio.registry.serde.validation-enabled=false"));
     }
 
     @Test

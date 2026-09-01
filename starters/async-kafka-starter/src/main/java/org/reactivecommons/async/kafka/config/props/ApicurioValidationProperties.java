@@ -15,7 +15,9 @@ import java.util.Map;
  * <p>
  * Only the switches that have no Apicurio equivalent are typed here. Everything the registry itself understands is
  * written in {@code properties} with its original Apicurio key, so an existing serde configuration can be pasted
- * as is and there are no two names for the same thing:
+ * as is and there are no two names for the same thing. Schema validation itself is turned on and off with
+ * {@code apicurio.registry.serde.validation-enabled}, exactly as it would be for the Apicurio serdes: when it is
+ * {@code false} Reactive Commons keeps its default no-op validator instead of connecting to the registry.
  * <pre>
  * reactive:
  *   commons:
@@ -29,8 +31,7 @@ import java.util.Map;
  *       accounts:
  *         apicurio:
  *           properties:
- *             apicurio.registry.url: http://localhost:8080/apis/registry/v3
- *             apicurio.registry.artifact.group-id: accounts
+ *             apicurio.registry.serde.validation-enabled: false
  * </pre>
  * <p>
  * These values are only read when the {@code async-commons-kafka-apicurio-starter} dependency is present.
@@ -41,12 +42,6 @@ import java.util.Map;
 @NoArgsConstructor
 @SuperBuilder
 public class ApicurioValidationProperties {
-
-    /**
-     * Enables schema validation for the domain. When false Reactive Commons keeps its default no-op validator.
-     */
-    @Builder.Default
-    private boolean enabled = true;
 
     /**
      * Validates the payload before publishing it.
@@ -64,7 +59,8 @@ public class ApicurioValidationProperties {
      * Every Apicurio setting, using its original key: {@code apicurio.registry.url},
      * {@code apicurio.registry.artifact.group-id}, {@code apicurio.registry.artifact.artifact-id},
      * {@code apicurio.registry.artifact.version}, {@code apicurio.registry.find-latest},
-     * {@code apicurio.registry.auth.*} and any other one the serdes accept.
+     * {@code apicurio.registry.serde.validation-enabled}, {@code apicurio.registry.auth.*} and any other one the
+     * serdes accept.
      * <p>
      * Two of them are constrained: {@code apicurio.registry.headers.enabled} may only be {@code true}, because the
      * schema coordinates always travel in the record headers, and the schema version has to be decided explicitly,

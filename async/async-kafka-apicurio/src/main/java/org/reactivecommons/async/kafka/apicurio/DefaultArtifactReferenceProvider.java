@@ -21,16 +21,13 @@ public class DefaultArtifactReferenceProvider implements ArtifactReferenceProvid
 
     @Override
     public ArtifactReference referenceFor(String topic) {
-        if (explicitArtifactId != null && !explicitArtifactId.isBlank()) {
-            return ArtifactReference.builder()
-                    .groupId(emptyToNull(explicitGroupId))
-                    .artifactId(explicitArtifactId)
-                    .version(emptyToNull(explicitVersion))
-                    .build();
-        }
+        String artifactId = (explicitArtifactId != null && !explicitArtifactId.isBlank())
+                ? explicitArtifactId
+                : topic + VALUE_SUFFIX;
+
         return ArtifactReference.builder()
                 .groupId(emptyToNull(explicitGroupId))
-                .artifactId(topic + VALUE_SUFFIX)
+                .artifactId(artifactId)
                 .version(emptyToNull(explicitVersion))
                 .build();
     }
