@@ -5,8 +5,8 @@ sidebar_position: 3
 # Sending a Command
 
 :::warning Not available on Kafka Commands are **not supported by the Kafka implementation** of Reactive Commons. Use
-the RabbitMQ implementation, or model the interaction as a [domain event](./2-sending-a-domain-event.md) when the
-transport must be Kafka.
+the RabbitMQ implementation, or model the interaction as a
+[domain event](./sending-a-domain-event/kafka.md) when the transport must be Kafka.
 :::
 
 ## API specification
@@ -71,6 +71,35 @@ public class ReactiveDirectAsyncGateway {
 ```
 
 After that you can send commands from you application to a remote application that handles this command.
+
+## Sending a Raw Command
+
+There is no separate API to *send* a raw command: `RawCommandHandler` (see
+[Listening Raw Commands](./7-handling-commands.md#listening-raw-commands)) is a **receiving-side** concept. You send the
+command exactly like any other one, with `sendCommand(Command<T>, targetName)` or
+`sendCommand(CloudEvent, targetName)`; what makes it "raw" is that the receiver processes it without converting it to a
+`Command<T>` or `CloudEvent` first, and without filtering by command name.
+
+```java
+@RequiredArgsConstructor
+@EnableDirectAsyncGateway
+public class ReactiveDirectAsyncGateway {
+    public static final String TARGET_NAME = "other-app";
+    public static final String SOME_COMMAND_NAME = "some.command.name";
+    private final DirectAsyncGateway gateway;
+
+    public Mono<Void> runRemoteJob(Object command) {
+        // Sent the same way as any other command; the target application decides to handle it with a
+        // RawCommandHandler instead of a DomainCommandHandler
+        return gateway.sendCommand(new Command<>(SOME_COMMAND_NAME, UUID.randomUUID().toString(), command), TARGET_NAME);
+    }
+}
+```
+
+This is only relevant for RabbitMQ, since commands are not supported on Kafka at all. A `RawCommandHandler` receives
+every command routed to its queue as a `RabbitMessage`, regardless of the name used to send it, which is why it is
+useful for consumers that do not want to declare a handler per command name, or that need the raw body/headers rather
+than a deserialized payload.
 
 ## Example
 

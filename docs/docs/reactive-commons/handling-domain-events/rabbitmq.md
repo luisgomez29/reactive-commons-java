@@ -1,8 +1,8 @@
 ---
-sidebar_position: 6
+sidebar_position: 1
 ---
 
-# Handling DomainEvents
+# RabbitMQ
 
 ## HandlerRegistry configuration
 
@@ -22,7 +22,8 @@ public class HandlerRegistryConfiguration {
 }
 ```
 
-To effectively start listening events you should add the annotation `@EnableEventListeners` to your MainApplication class or any other spring Configuration class, for example the `EventsHandler` class can be like:
+To effectively start listening events you should add the annotation `@EnableEventListeners` to your MainApplication
+class or any other spring Configuration class, for example the `EventsHandler` class can be like:
 
 ```java
 @EnableEventListeners
@@ -38,7 +39,8 @@ public class EventsHandler {
 
 ### Listening Notification Events (broadcast)
 
-In the same way you can listen the NotificationEvents which has the same DomainEvent definition, but in that case you should add the `@EnableNotificationListener` annotation 
+In the same way you can listen the NotificationEvents which has the same DomainEvent definition, but in that case you
+should add the `@EnableNotificationListener` annotation
 
 ```java
 @Configuration
@@ -66,11 +68,17 @@ public class EventsHandler {
 }
 ```
 
+A notification event is delivered to **every** instance of the application, not just one of them: each pod declares its
+own temporary, exclusive queue bound to the events exchange, so the message is broadcast rather than load balanced.
+See [Communication Scenarios](/reactive-commons-java/docs/category/communication-scenarios) for the event vs.
+notification delivery semantics.
+
 ### Listening Raw Events
 
-If you need direct access to the raw message from RabbitMQ without domain model conversion, you can use `RawEventHandler`. 
-This approach applies to both domain events and notification events. Raw event handlers process all incoming events for the specified event name,
-giving you access to the message body, headers, and other low-level properties directly.
+If you need direct access to the raw message from RabbitMQ without domain model conversion, you can use
+`RawEventHandler`. This approach applies to both domain events and notification events. Raw event handlers process all
+incoming events for the specified event name, giving you access to the message body, headers, and other low-level
+properties directly.
 
 #### Example for Raw Domain Events
 
@@ -87,7 +95,8 @@ public class HandlerRegistryConfiguration {
 }
 ```
 
-The handler implementation receives a `RawMessage` which can be cast to `RabbitMessage` to access the underlying message properties:
+The handler implementation receives a `RawMessage` which can be cast to `RabbitMessage` to access the underlying message
+properties:
 
 ```java
 @EnableEventListeners
@@ -105,3 +114,5 @@ public class EventsHandler {
 
 }
 ```
+
+See [Sending a Raw Message](../sending-a-domain-event/rabbitmq.md#sending-a-raw-message) for the emitting side.

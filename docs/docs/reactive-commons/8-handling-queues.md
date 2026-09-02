@@ -2,11 +2,27 @@
 sidebar_position: 8
 ---
 
-# Handling Queues
+# Handling Queues and Topics
 
 ## HandlerRegistry configuration
 
-To listen to a custom queue you should register it in the HandlerRegistry and make it available as a Bean. Queue listeners provide direct access to RabbitMQ queues with full control over queue configuration and topology.
+To get direct access to the underlying broker, bypassing the domain event / notification conventions, register a raw
+listener in the `HandlerRegistry` and make it available as a Bean. The handler receives the raw message exactly as it
+travels on the broker.
+
+There are **two separate methods**, one per broker, and they are **not interchangeable**:
+
+| Method                             | Broker   | Enabled by              | What the name means                                        | What the handler receives                              |
+|------------------------------------|----------|-------------------------|------------------------------------------------------------|--------------------------------------------------------|
+| `HandlerRegistry.listenQueue(...)` | RabbitMQ | `@EnableQueueListeners` | The RabbitMQ queue itself                                  | A `RabbitMessage`, cast from the `RawMessage` argument |
+| `HandlerRegistry.listenTopic(...)` | Kafka    | `@EnableTopicListeners` | The Kafka **topic** consumed by a dedicated consumer group | A `KafkaMessage`, cast from the `RawMessage` argument  |
+
+Registering `listenQueue` while running on Kafka (or `listenTopic` while running on RabbitMQ) has no effect: each
+`BrokerProvider` only starts the listeners meant for its own broker, so the "wrong" one for the active broker is
+silently never started. Use the method that matches the starter you depend on (`async-commons-rabbit-starter` or
+`async-commons-kafka-starter`).
+
+## Listening RabbitMQ Queues
 
 ### Listening queues
 
@@ -24,12 +40,13 @@ public class HandlerRegistryConfiguration {
 }
 ```
 
-To effectively start listening to queues you should add the annotation `@EnableQueueListeners` to your MainApplication class or any other Spring Configuration class. The `QueueHandler` class can be like:
+To effectively start listening to queues you should add the annotation `@EnableQueueListeners` to your MainApplication
+class or any other Spring Configuration class. The `QueueHandler` class can be like:
 
 ```java
 @EnableQueueListeners
 public class QueueHandler {
-    
+
     public Mono<Void> handleMessage(RawMessage message) {
         RabbitMessage rawMessage = (RabbitMessage) message;
         System.out.println("Message received from queue: " + new String(rawMessage.getBody()));
@@ -42,7 +59,8 @@ public class QueueHandler {
 
 ### Listening queues with custom topology
 
-If you need to configure the queue topology (exchange type, durability, bindings, etc.), you can use the `TopologyHandlerSetup` parameter:
+If you need to configure the queue topology (exchange type, durability, bindings, etc.), you can use the
+`TopologyHandlerSetup` parameter. It receives RabbitMQ's own `TopologyCreator`, so it is cast to that type:
 
 ```java
 @Configuration
@@ -52,26 +70,26 @@ public class HandlerRegistryConfiguration {
     public HandlerRegistry handlerRegistry(QueueHandler queueHandler) {
         return HandlerRegistry.register()
                 .listenQueue("my.custom.queue", queueHandler::handleMessage, topologyCreator -> {
-                    var creator = (TopologyCreator) topologyCreator;
-                    
+                    var creator = (TopologyCreator) topologyCreator; // org.reactivecommons.async.rabbit...
+
                     var exchangeSpecification = ExchangeSpecification
                             .exchange("myExchange")
                             .durable(true)
                             .type("topic");
-                    
+
                     var queueSpecification = QueueSpecification.queue("my.custom.queue")
                             .durable(false)
                             .autoDelete(true)
                             .exclusive(true)
                             .arguments(Map.of(
-                                "x-message-ttl", 60000,
-                                "x-max-length", 1000
+                                    "x-message-ttl", 60000,
+                                    "x-max-length", 1000
                             ));
-                    
+
                     var bind = creator.bind(
                             BindingSpecification.binding("myExchange", "my.custom.queue", "my.custom.queue")
                     );
-                    
+
                     return creator.declare(exchangeSpecification)
                             .then(creator.declare(queueSpecification))
                             .then(bind)
@@ -82,11 +100,15 @@ public class HandlerRegistryConfiguration {
 ```
 
 The `TopologyHandlerSetup` allows you to:
+
 - Declare queues with custom arguments (TTL, max-length, dead-letter exchange, etc.)
 - Declare exchanges (direct, topic, fanout, headers)
 - Create bindings between queues and exchanges
 - Set queue types (classic, quorum)
 - Set queue properties like durability, auto-delete, and exclusivity
+
+If the domain's `createTopology` switch is `false`, the setup is never invoked and the topology is assumed to already
+exist.
 
 ### Listening queues with custom domain
 
@@ -104,7 +126,146 @@ public class HandlerRegistryConfiguration {
 }
 ```
 
-## Queue configuration examples
+## Listening Kafka Topics
+
+### Listening topics
+
+The simplest way to listen to a topic directly is by providing the topic name and a handler:
+
+```java
+@Configuration
+public class HandlerRegistryConfiguration {
+
+    @Bean
+    public HandlerRegistry handlerRegistry(TopicHandler topicHandler) {
+        return HandlerRegistry.register()
+                .listenTopic("my.custom.topic", topicHandler::handleMessage);
+    }
+}
+```
+
+To effectively start listening to topics you should add the annotation `@EnableTopicListeners` to your MainApplication
+class or any other Spring Configuration class. The `TopicHandler` class can be like:
+
+```java
+@EnableTopicListeners
+public class TopicHandler {
+
+    public Mono<Void> handleMessage(RawMessage message) {
+        KafkaMessage rawMessage = (KafkaMessage) message;
+        System.out.println("Message received from topic: " + new String(rawMessage.getBody()));
+        System.out.println("Headers: " + rawMessage.getProperties().getHeaders());
+        // Process the message
+        return Mono.empty();
+    }
+}
+```
+
+### How a topic is consumed
+
+Kafka has no native queue concept, so `listenTopic(...)` subscribes directly to that topic through a **dedicated
+consumer group**, derived from a base group id and the registered name: `<base>-<name>`. This keeps every raw topic
+listener isolated from the domain events and notification listeners, and lets several instances of the same application
+share the work of that topic exactly as several consumers competing for the same RabbitMQ queue would.
+
+The base is the `group.id` configured under `connection-properties.consumer.group-id` for the domain when present (the
+same one the domain events listener honours), and falls back to the application name otherwise. Since the topic name is
+already unique per listener, appending it to the base is enough to keep every topic listener isolated from the domain
+events listener and from each other, with no extra suffix needed.
+
+```yaml title="application.yaml"
+reactive:
+  commons:
+    kafka:
+      app:
+        connection-properties:
+          consumer:
+            group-id: my-service.consumer-group
+```
+
+With the configuration above, a topic registered as `my.custom.topic` is consumed by the group
+`my-service.consumer-group-my.custom.topic`, and the domain events listener uses `my-service.consumer-group`
+directly (see [Kafka connection properties](./configuration_properties/2-kafka.md)). Without an explicit `group-id`,
+both fall back to `<appName>-<name>` and `<appName>-events` respectively.
+
+Because the registered name is used as the topic name, it must be a valid Kafka topic name.
+
+### Listening topics with custom topology
+
+If you need to control how the topic is created (partitions, replication factor, configs), use the
+`TopologyHandlerSetup` parameter. It receives Kafka's own `TopologyCreator`, so it is cast to that type:
+
+```java
+@Configuration
+public class HandlerRegistryConfiguration {
+
+    @Bean
+    public HandlerRegistry handlerRegistry(TopicHandler topicHandler) {
+        return HandlerRegistry.register()
+                .listenTopic("my.custom.topic", topicHandler::handleMessage, topologyCreator -> {
+                    var creator = (TopologyCreator) topologyCreator; // org.reactivecommons.async.kafka...
+                    return creator.createTopics(List.of("my.custom.topic"));
+                });
+    }
+}
+```
+
+`TopologyCreator.createTopics(List<String>)` honours any `KafkaCustomizations` (partitions, replication factor, topic
+configs) already registered for that topic name. If the domain's `createTopology` switch is `false`, the setup is never
+invoked and the topic is assumed to already exist.
+
+### Listening topics with custom domain
+
+You can listen to topics in different domains by specifying the domain name:
+
+```java
+@Configuration
+public class HandlerRegistryConfiguration {
+
+    @Bean
+    public HandlerRegistry handlerRegistry(TopicHandler topicHandler) {
+        return HandlerRegistry.register()
+                .listenTopic("customDomain", "my.custom.topic", topicHandler::handleMessage);
+    }
+}
+```
+
+### One consumer group per topic, not shared
+
+Each `listenTopic(...)` call starts its **own** consumer, with its own dedicated consumer group (see
+[How a topic is consumed](#how-a-topic-is-consumed)). Registering several topics does **not** make a single consumer
+subscribe to all of them:
+
+```java
+// This starts TWO independent consumers, each with its own consumer group,
+// not one consumer listening to both topics.
+.listenTopic("topic.a", handlerA)
+.listenTopic("topic.b", handlerB)
+```
+
+If what you need is a **single consumer group subscribed to several topic names**, `listenTopic` is not the right tool:
+use `listenEvent` / `listenDomainEvent` / `listenRawEvent` instead. All the names registered that way share one consumer
+group (the domain events one, see [Kafka connection properties](./configuration_properties/2-kafka.md))
+and Kafka's own partition assignment decides which pod gets which record; internally, each message is still routed to
+the handler that matches its topic name:
+
+```java
+@Bean
+public HandlerRegistry handlerRegistry(EventsHandler events) {
+    return HandlerRegistry.register()
+            .listenEvent("event.push", events::handleEventA, MessagePush.class)
+            .listenRawEvent("event.raw.thing", events::handleRawEvent);
+}
+```
+
+`listenTopic` exists precisely for the opposite case: a topic that must stay isolated from the domain events convention,
+with its own consumer group, its own topology and its own retry/DLQ behaviour.
+
+## RabbitMQ queue configuration examples
+
+These examples are RabbitMQ-specific: they use `listenQueue(...)` and the `ExchangeSpecification` /
+`QueueSpecification` / `BindingSpecification` topology, none of which apply to Kafka. See
+[Listening topics with custom topology](#listening-topics-with-custom-topology) for the Kafka equivalent.
 
 ### Dead letter queue configuration
 
@@ -180,7 +341,8 @@ Configure a quorum queue for high availability:
 
 ### Temporary queue configuration
 
-Configure a temporary queue with a random name for short-lived, exclusive connections. Temporary queues are useful for reply-to patterns or ephemeral consumers:
+Configure a temporary queue with a random name for short-lived, exclusive connections. Temporary queues are useful for
+reply-to patterns or ephemeral consumers:
 
 ```java
 @Configuration
@@ -189,32 +351,32 @@ public class HandlerRegistryConfiguration {
     @Bean
     public HandlerRegistry handlerRegistry(QueueHandler queueHandler) {
         String queueName = "temp.queue.".concat(generateRandomQueueName());
-        
+
         return HandlerRegistry.register()
                 .listenQueue(queueName, queueHandler::handleMessage, topologyCreator -> {
                     var creator = (TopologyCreator) topologyCreator;
                     String exchangeName = "temp.exchange";
-                    
+
                     var exchangeSpec = ExchangeSpecification.exchange(exchangeName)
                             .type("topic")
                             .durable(true);
-                    
+
                     var queueSpec = QueueSpecification.queue(queueName)
                             .durable(false)
                             .autoDelete(true)
                             .exclusive(true);
-                    
+
                     var binding = creator.bind(
                             BindingSpecification.binding(exchangeName, queueName, queueName)
                     );
-                    
+
                     return creator.declare(exchangeSpec)
                             .then(creator.declare(queueSpec))
                             .then(binding)
                             .then();
                 });
     }
-    
+
     private String generateRandomQueueName() {
         UUID uuid = UUID.randomUUID();
         ByteBuffer bb = ByteBuffer.wrap(new byte[16]);
@@ -224,11 +386,11 @@ public class HandlerRegistryConfiguration {
         return encodeToUrlSafeString(bb.array())
                 .replace("=", "");
     }
-    
+
     private static String encodeToUrlSafeString(byte[] src) {
         return new String(encodeUrlSafe(src));
     }
-    
+
     private static byte[] encodeUrlSafe(byte[] src) {
         if (src.length == 0) {
             return src;

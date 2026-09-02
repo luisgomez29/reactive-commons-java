@@ -85,11 +85,14 @@ public class RCKafkaApicurioConfig {
      */
     private static SchemaValidator createValidator(ApicurioValidationProperties properties, String domain,
                                                    SharedSchemaResolvers resolvers) {
-        if (properties == null ||
-                !"false".equalsIgnoreCase(properties.getProperties().get(SerdeConfig.VALIDATION_ENABLED))) {
+        if (properties == null || isValidationDisabled(properties)) {
             return NoOpSchemaValidator.INSTANCE;
         }
         return buildValidator(properties, domain, resolvers);
+    }
+
+    private static boolean isValidationDisabled(ApicurioValidationProperties properties) {
+        return "false".equalsIgnoreCase(properties.getProperties().get(SerdeConfig.VALIDATION_ENABLED));
     }
 
     static ApicurioSchemaValidator buildValidator(ApicurioValidationProperties properties, String domain,

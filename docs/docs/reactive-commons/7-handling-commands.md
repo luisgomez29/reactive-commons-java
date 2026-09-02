@@ -6,7 +6,7 @@ sidebar_position: 7
 
 :::warning Not available on Kafka Commands are **not supported by the Kafka implementation** of Reactive Commons. Over
 Kafka you can only handle
-[domain events](./6-handling-domain-events.md) and notification events.
+[domain events](./handling-domain-events/kafka.md) and notification events.
 :::
 
 ## HandlerRegistry configuration
@@ -77,6 +77,10 @@ public class CommandsHandler {
     }
 }
 ```
+
+See [Sending a Raw Command](./3-sending-a-command.md#sending-a-raw-command) for the sending side: there is no separate
+API to send one, a raw command is simply any `Command<T>` or `CloudEvent` sent normally and received by a
+`RawCommandHandler` instead of a typed one.
 
 ### Wildcards
 

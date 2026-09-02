@@ -391,6 +391,48 @@ validate against the latest one.
 This applies to the whole domain, whichever direction is being validated.
 :::
 
+### A producer that pins the version silently defeats `find-latest` downstream
+
+`apicurio.registry.artifact.version` and `apicurio.registry.find-latest` are evaluated **per domain**, so nothing stops
+the producer of a topic from pinning a version while a consumer of that same topic configures
+`find-latest: true`, expecting to always validate against the newest schema. That combination does not work the way it
+looks:
+
+1. The producer's domain has `apicurio.registry.artifact.version: 1` (or any other value) configured, so every outbound
+   record is validated against version 1 and, since a pinned version always wins, `find-latest` on the producer's own
+   domain is irrelevant here (see the table above).
+2. On every publish, Reactive Commons writes the coordinates it resolved into the record headers, including
+   `apicurio.value.version=1` — this happens on **every** message, whether it was sent as a `DomainEvent`, a
+   `CloudEvent`, or a raw message built by hand (`KafkaMessage`), because all three go through the same
+   `validateOutbound` step.
+3. The consumer's domain has `apicurio.registry.artifact.version` empty and `find-latest: true`, which looks correct in
+   isolation. But the record already carries `apicurio.value.version=1` in its headers, and the artifact/group it names
+   matches the one configured for that topic, so the consumer takes the version **from the headers** instead of asking
+   the registry for the latest one (see [Which artifact is used](#which-artifact-is-used), second row).
+   `find-latest` is never consulted for that message.
+
+The net effect: the consumer keeps validating against version 1 forever, no matter how many new versions are registered,
+until the pinned version is removed from the **producer's** configuration. This is easy to miss because the consumer's
+own configuration looks correct, and `find-latest` genuinely does apply to messages that carry no schema coordinates at
+all — for instance ones published by a client that is not Reactive Commons and does not write those headers.
+
+To have both sides really resolve the latest version, leave `apicurio.registry.artifact.version` empty **on the
+producer's domain too**:
+
+```yaml title="Producer: resolves and stamps the latest version on every publish"
+reactive:
+  commons:
+    kafka:
+      app:
+        apicurio:
+          properties:
+            apicurio.registry.artifact.version:        # empty, not pinned
+            apicurio.registry.find-latest: true
+```
+
+With that change, the producer resolves the actual latest version at publish time and writes that into the headers, so a
+consumer configured the same way keeps following the real latest version as the schema evolves.
+
 :::tip Prefer an explicit version Of the ways to determine a version, `apicurio.registry.artifact.version` is the only
 one that does not depend on what the registry considers latest at any given moment. Set it when the topic must honour a
 single contract.

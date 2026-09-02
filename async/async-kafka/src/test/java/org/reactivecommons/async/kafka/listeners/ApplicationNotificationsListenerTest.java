@@ -16,13 +16,10 @@ import org.reactivecommons.async.commons.HandlerResolver;
 import org.reactivecommons.async.commons.communications.Message;
 import org.reactivecommons.async.commons.converters.MessageConverter;
 import org.reactivecommons.async.kafka.communications.ReactiveMessageListener;
-import org.reactivecommons.async.kafka.communications.topology.TopologyCreator;
-import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
@@ -31,7 +28,7 @@ import static org.mockito.Mockito.when;
 
 @SuppressWarnings({"rawtypes", "unchecked"})
 @ExtendWith(MockitoExtension.class)
-class ApplicationEventListenerTest {
+class ApplicationNotificationsListenerTest {
 
     @Mock
     private ReactiveMessageListener receiver;
@@ -42,11 +39,11 @@ class ApplicationEventListenerTest {
     @Mock
     private Message message;
 
-    private ApplicationEventListener applicationEventListener;
+    private ApplicationNotificationsListener applicationNotificationsListener;
 
     @BeforeEach
     void setup() {
-        applicationEventListener = new ApplicationEventListener(
+        applicationNotificationsListener = new ApplicationNotificationsListener(
                 receiver,
                 resolver,
                 messageConverter,
@@ -56,9 +53,8 @@ class ApplicationEventListenerTest {
                 1000,
                 null,
                 null,
-                "testApp-events"
+                "testApp"
         );
-
     }
 
     @Test
@@ -69,16 +65,16 @@ class ApplicationEventListenerTest {
         RegisteredEventListener<Object, Object> registeredEventListenerMock = mock(RegisteredEventListener.class);
         when(registeredEventListenerMock.handler()).thenReturn(domainEventHandler);
         when(registeredEventListenerMock.inputClass()).thenReturn(Object.class);
-        when(resolver.getEventListener(anyString())).thenReturn(registeredEventListenerMock);
+        when(resolver.getNotificationListener(anyString())).thenReturn(registeredEventListenerMock);
         when(messageConverter.readDomainEvent(any(Message.class), any(Class.class))).thenReturn(event);
 
-        Mono<Object> flow = applicationEventListener.rawMessageHandler("executorPath").apply(message);
+        Mono<Object> flow = applicationNotificationsListener.rawMessageHandler("executorPath").apply(message);
 
         StepVerifier.create(flow)
                 .expectNext("Handled")
                 .verifyComplete();
 
-        verify(resolver, times(1)).getEventListener(anyString());
+        verify(resolver, times(1)).getNotificationListener(anyString());
         verify(messageConverter, times(1)).readDomainEvent(any(Message.class), any(Class.class));
     }
 
@@ -89,15 +85,15 @@ class ApplicationEventListenerTest {
         when(domainEventHandler.handle(event)).thenReturn(Mono.empty());
         RegisteredEventListener<Object, Object> registeredEventListenerMock = mock(RegisteredEventListener.class);
         when(registeredEventListenerMock.handler()).thenReturn(domainEventHandler);
-        when(resolver.getEventListener(anyString())).thenReturn(registeredEventListenerMock);
+        when(resolver.getNotificationListener(anyString())).thenReturn(registeredEventListenerMock);
         when(messageConverter.readCloudEvent(any(Message.class))).thenReturn(event);
 
-        Mono<Object> flow = applicationEventListener.rawMessageHandler("executorPath").apply(message);
+        Mono<Object> flow = applicationNotificationsListener.rawMessageHandler("executorPath").apply(message);
 
         StepVerifier.create(flow)
                 .verifyComplete();
 
-        verify(resolver, times(1)).getEventListener(anyString());
+        verify(resolver, times(1)).getNotificationListener(anyString());
         verify(messageConverter, times(1)).readCloudEvent(any(Message.class));
     }
 
@@ -107,40 +103,14 @@ class ApplicationEventListenerTest {
         when(rawEventHandler.handle(message)).thenReturn(Mono.empty());
         RegisteredEventListener<Object, Object> registeredEventListenerMock = mock(RegisteredEventListener.class);
         when(registeredEventListenerMock.handler()).thenReturn(rawEventHandler);
-        when(resolver.getEventListener(anyString())).thenReturn(registeredEventListenerMock);
+        when(resolver.getNotificationListener(anyString())).thenReturn(registeredEventListenerMock);
 
-        Mono<Object> flow = applicationEventListener.rawMessageHandler("executorPath").apply(message);
+        Mono<Object> flow = applicationNotificationsListener.rawMessageHandler("executorPath").apply(message);
 
         StepVerifier.create(flow)
                 .verifyComplete();
 
-        verify(resolver, times(1)).getEventListener(anyString());
+        verify(resolver, times(1)).getNotificationListener(anyString());
         verify(rawEventHandler, times(1)).handle(message);
-    }
-
-    @Test
-    void shouldUseTheGivenGroupId() {
-        ApplicationEventListener listener = buildListener("dummy.consumer-group");
-        when(receiver.getMaxConcurrency()).thenReturn(1);
-        when(receiver.listen(anyString(), any())).thenReturn(Flux.never());
-
-        listener.startListener(mock(TopologyCreator.class));
-
-        verify(receiver, times(1)).listen(eq("dummy.consumer-group"), any());
-    }
-
-    private ApplicationEventListener buildListener(String groupId) {
-        return new ApplicationEventListener(
-                receiver,
-                resolver,
-                messageConverter,
-                true,
-                false,
-                3,
-                1000,
-                null,
-                null,
-                groupId
-        );
     }
 }
